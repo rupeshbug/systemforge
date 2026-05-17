@@ -287,36 +287,3 @@ This prevents:
 | ORM | Drizzle |
 | UI | Tailwind + shadcn/ui |
 | Deployment | Vercel |
-
----
-
-# What This Project Demonstrates
-
-SystemForge demonstrates:
-
-- workflow orchestration
-- deterministic AI routing
-- durable workflow thinking
-- workflow state machines
-- human-in-the-loop systems
-- structured outputs
-- failure-aware AI systems
-- idempotent execution
-- auditability and tracing
-- runtime engineering
-
-Most AI projects demonstrate prompting.
-
-SystemForge demonstrates:
-
-# engineering around AI systems.
-
----
-
-# Engineering Philosophy
-
-> Use AI for reasoning, but use software engineering for control.
-
-The goal is not autonomous AI.
-
-The goal is reliable, observable, recoverable, and controllable AI workflows built with explicit orchestration and durable state management.
