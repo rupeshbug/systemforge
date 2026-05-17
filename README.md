@@ -1,8 +1,8 @@
 # SystemForge
 
-A durable AI workflow system for deterministic, auditable, and human-approved lead qualification.
+A workflow-first AI lead qualification system with deterministic routing, persisted state, and human approval.
 
-SystemForge explores how AI systems can be engineered beyond simple prompt-response chatbots. Instead of letting the LLM control the entire application, the system treats AI as one component inside a controlled workflow runtime.
+SystemForge explores how AI systems can be built beyond simple prompt-response chatbots. Instead of letting the LLM control the entire application, the system treats AI as one step inside a controlled workflow runtime.
 
 ---
 
@@ -22,8 +22,6 @@ The goal is to build reliable AI workflows with:
 - workflow state machines
 - human-in-the-loop approval
 - execution history
-- retry and failure handling
-- pause/resume workflows
 - durable state persistence
 - auditability and tracing
 
@@ -40,14 +38,13 @@ Businesses receive inbound leads through:
 - Messenger
 - forms
 
-The runtime helps businesses:
+SystemForge helps businesses:
 
 - understand lead intent
 - qualify leads
 - collect missing information
-- trigger onboarding/demo workflows
-- escalate uncertain leads to humans
-- safely execute business actions
+- escalate uncertain or high-intent leads to humans
+- record the final reviewed outcome
 
 Example messages:
 
@@ -65,6 +62,30 @@ Can someone from sales contact me?
 
 ---
 
+# What This Project Implements
+
+This project focuses on a narrow but complete workflow slice:
+
+- accept one inbound lead message
+- run deterministic routing first
+- avoid AI calls when static routing is enough
+- call AI only for high-intent or unclear cases
+- validate and store workflow state in the database
+- save execution events for auditability
+- place AI-qualified leads into a human review step
+- approve or reject the lead manually
+- log the final workflow outcome
+
+This proves the core idea:
+
+- AI does not control the system
+- workflow state is explicit
+- human approval is built into the process
+- state survives beyond a single request/response
+- workflow decisions are observable later
+
+---
+
 # Deterministic Routing
 
 The runtime avoids unnecessary AI calls whenever deterministic logic is enough.
@@ -73,35 +94,30 @@ Examples:
 
 ```txt
 Greeting
-→ static reply
-→ no AI call
+-> static reply
+-> no AI call
 ```
 
 ```txt
 Pricing question
-→ static pricing response
-→ pricing UI
-```
-
-```txt
-Onboarding request
-→ onboarding UI
+-> static pricing response
+-> pricing UI
 ```
 
 ```txt
 High-intent sales lead
-→ AI analysis
-→ human review
+-> AI analysis
+-> human review
 ```
 
 ```txt
 Unclear request
-→ clarification flow
+-> clarification or AI analysis
 ```
 
 ```txt
 Irrelevant message
-→ safe fallback
+-> safe fallback
 ```
 
 This proves an important idea:
@@ -115,32 +131,32 @@ This proves an important idea:
 Instead of thinking:
 
 ```txt
-request → response
+request -> response
 ```
 
 SystemForge thinks in:
 
 ```txt
-stateful long-running workflows
+stateful workflows
 ```
 
 Example workflow:
 
 ```txt
 MESSAGE_RECEIVED
-↓
+|
 DETERMINISTIC_ROUTING
-↓
-AI_ANALYSIS_RUNNING
-↓
-VALIDATION_PASSED
-↓
+|
+ROUTE_DECIDED
+|
+AI_ANALYSIS_RUNNING (only when needed)
+|
+AI_RESULT_SAVED
+|
 WAITING_FOR_HUMAN_REVIEW
-↓
-APPROVED
-↓
-ACTION_EXECUTED
-↓
+|
+APPROVED / REJECTED
+|
 COMPLETED
 ```
 
@@ -150,24 +166,22 @@ This makes the system:
 
 - easier to reason about
 - easier to debug
-- safer to recover
+- resumable from persisted state
 - observable over time
-- resilient to failures
+- safer than free-form AI control
 
 ---
 
 # Durable Workflow Thinking
 
-The project is inspired by Temporal-style workflow thinking.
+The system stores workflow state and history in the database so the process does not depend on in-memory application state.
 
-Workflows should survive:
+This means workflows can survive:
 
-- API failures
 - server crashes
 - deployment restarts
-- delayed user replies
-- retries
-- duplicate events
+- delayed human review
+- temporary AI/API failures
 
 Example:
 
@@ -176,17 +190,17 @@ WAITING_FOR_HUMAN_REVIEW
 ```
 
 A human might approve:
+
 - 5 minutes later
 - 2 days later
 - 2 weeks later
 
-The workflow should still resume safely.
+The workflow should still be resumable because its state is persisted.
 
-To support this, the runtime persists:
+To support this, the runtime stores:
 
 - workflow state
 - execution history
-- retry information
 - workflow events
 
 ---
@@ -199,10 +213,10 @@ Example events:
 
 ```txt
 WORKFLOW_STARTED
+ROUTE_DECIDED
 AI_ANALYSIS_COMPLETED
 HUMAN_REVIEW_REQUIRED
 HUMAN_APPROVED
-ACTION_EXECUTED
 WORKFLOW_COMPLETED
 ```
 
@@ -210,7 +224,6 @@ This creates:
 
 - auditability
 - observability
-- replayability
 - debugging visibility
 
 Without execution history:
@@ -227,54 +240,6 @@ debugging = observable workflow execution
 
 ---
 
-# Retry and Failure Handling
-
-AI systems fail constantly.
-
-Possible failures:
-
-- LLM timeout
-- invalid JSON output
-- API failure
-- database failure
-- duplicate webhook events
-
-The runtime supports:
-
-- retries
-- fallback paths
-- validation before execution
-- safe workflow recovery
-- human escalation
-
-The goal is not to assume AI always works.
-
-The goal is to build systems that fail safely.
-
----
-
-# Idempotent Workflow Thinking
-
-Retries should never create duplicate side effects.
-
-Example actions:
-
-```txt
-create_follow_up_task
-send_notification
-create_booking
-```
-
-The runtime checks whether an action has already executed before retrying.
-
-This prevents:
-
-- duplicate tasks
-- duplicate bookings
-- repeated notifications
-
----
-
 # Tech Stack
 
 | Layer | Technology |
@@ -287,3 +252,16 @@ This prevents:
 | ORM | Drizzle |
 | UI | Tailwind + shadcn/ui |
 | Deployment | Vercel |
+
+---
+
+# How It Can Be Extended
+
+Later, the system can be extended with:
+
+- automatic retry policies
+- idempotent action execution
+- scheduled resume/recovery jobs
+- duplicate event protection
+- onboarding or booking actions after approval
+- multi-channel lead ingestion
