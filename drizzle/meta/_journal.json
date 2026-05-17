@@ -8,6 +8,13 @@
       "when": 1778992625160,
       "tag": "0000_busy_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778993656764,
+      "tag": "0001_kind_bastion",
+      "breakpoints": true
     }
   ]
 }
