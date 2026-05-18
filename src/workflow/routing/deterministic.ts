@@ -120,7 +120,7 @@ function buildMatchedResult(
     route,
     matched: true,
     matchedBy,
-    currentStep: responseText ? "completed" : "route_resolved",
+    currentStep: "route_resolved",
     responseText,
     events,
   };

@@ -17,6 +17,7 @@ export const leadMessages = pgTable("lead_messages", {
   leadId: uuid("lead_id")
     .notNull()
     .references(() => leads.id),
+  role: text("role").notNull().default("user"),
   message: text("message").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

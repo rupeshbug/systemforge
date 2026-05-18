@@ -15,6 +15,13 @@
       "when": 1778993656764,
       "tag": "0001_kind_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779079976707,
+      "tag": "0002_known_alex_power",
+      "breakpoints": true
     }
   ]
 }

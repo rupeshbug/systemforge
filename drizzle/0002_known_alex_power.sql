@@ -1,0 +1,1 @@
+ALTER TABLE "lead_messages" ADD COLUMN "role" text DEFAULT 'user' NOT NULL;

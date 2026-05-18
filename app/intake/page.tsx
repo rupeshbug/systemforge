@@ -24,6 +24,8 @@ export default function IntakePage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [leadId, setLeadId] = useState<string | null>(null);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState(statusItems);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -73,7 +75,11 @@ export default function IntakePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt: trimmedMessage }),
+        body: JSON.stringify({
+          prompt: trimmedMessage,
+          leadId: leadId ?? undefined,
+          workflowId: workflowId ?? undefined,
+        }),
       });
 
       const data = (await response.json()) as {
@@ -82,6 +88,8 @@ export default function IntakePage() {
         error?: string;
         route?: string;
         currentStep?: string;
+        leadId?: string;
+        workflowId?: string;
       };
 
       if (!response.ok || !data.ok) {
@@ -97,6 +105,8 @@ export default function IntakePage() {
           content: data.text ?? "",
         },
       ]);
+      setLeadId(data.leadId ?? null);
+      setWorkflowId(data.workflowId ?? null);
       setWorkflowStatus([
         { label: "Current route", value: data.route ?? "pending" },
         {
