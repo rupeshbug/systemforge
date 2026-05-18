@@ -86,6 +86,7 @@ export default function IntakePage() {
         ok: boolean;
         text?: string;
         error?: string;
+        code?: string;
         route?: string;
         currentStep?: string;
         leadId?: string;
@@ -93,6 +94,10 @@ export default function IntakePage() {
       };
 
       if (!response.ok || !data.ok) {
+        if (data.code === "workflow_session_not_found") {
+          setLeadId(null);
+          setWorkflowId(null);
+        }
         setError(data.error ?? "Something went wrong.");
         return;
       }

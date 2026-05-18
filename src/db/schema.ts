@@ -17,6 +17,7 @@ export const leadMessages = pgTable("lead_messages", {
   leadId: uuid("lead_id")
     .notNull()
     .references(() => leads.id),
+  workflowId: uuid("workflow_id"),
   role: text("role").notNull().default("user"),
   message: text("message").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -59,6 +60,10 @@ export const leadMessagesRelations = relations(leadMessages, ({ one }) => ({
   lead: one(leads, {
     fields: [leadMessages.leadId],
     references: [leads.id],
+  }),
+  workflow: one(workflows, {
+    fields: [leadMessages.workflowId],
+    references: [workflows.id],
   }),
 }));
 

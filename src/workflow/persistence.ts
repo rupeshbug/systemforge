@@ -13,6 +13,13 @@ import type {
   WorkflowRoute,
 } from "@/src/workflow/routing/types";
 
+export class WorkflowSessionNotFoundError extends Error {
+  constructor() {
+    super("Workflow session not found.");
+    this.name = "WorkflowSessionNotFoundError";
+  }
+}
+
 type WorkflowSessionInput = {
   workflowId?: string;
   leadId?: string;
@@ -54,6 +61,8 @@ export async function getOrCreateWorkflowSession({
   workflowId,
   leadId,
 }: WorkflowSessionInput) {
+  const hasSessionIdentifiers = Boolean(workflowId || leadId);
+
   if (workflowId && leadId) {
     const [existingWorkflow] = await db
       .select({
@@ -67,6 +76,10 @@ export async function getOrCreateWorkflowSession({
     if (existingWorkflow) {
       return existingWorkflow;
     }
+  }
+
+  if (hasSessionIdentifiers) {
+    throw new WorkflowSessionNotFoundError();
   }
 
   const [lead] = await db
@@ -108,6 +121,7 @@ export async function saveWorkflowMessage({
     .insert(leadMessages)
     .values({
       leadId,
+      workflowId,
       role,
       message,
     })
@@ -219,7 +233,7 @@ export async function getWorkflowContext(workflowId: string, leadId: string) {
       createdAt: leadMessages.createdAt,
     })
     .from(leadMessages)
-    .where(eq(leadMessages.leadId, leadId))
+    .where(eq(leadMessages.workflowId, workflowId))
     .orderBy(desc(leadMessages.createdAt))
     .limit(8);
 

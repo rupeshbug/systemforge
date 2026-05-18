@@ -9,6 +9,7 @@ import {
   saveWorkflowMessage,
   updateLeadDetails,
   updateWorkflowState,
+  WorkflowSessionNotFoundError,
 } from "@/src/workflow/persistence";
 import { routeDeterministically } from "@/src/workflow/routing/deterministic";
 import type { WorkflowEvent } from "@/src/workflow/routing/types";
@@ -47,7 +48,25 @@ export async function POST(request: Request) {
   }
 
   const { prompt, workflowId, leadId } = parsedBody.data;
-  const session = await getOrCreateWorkflowSession({ workflowId, leadId });
+  let session;
+
+  try {
+    session = await getOrCreateWorkflowSession({ workflowId, leadId });
+  } catch (error) {
+    if (error instanceof WorkflowSessionNotFoundError) {
+      return Response.json(
+        {
+          ok: false,
+          error:
+            "The saved workflow session could not be resumed. Please start a new conversation.",
+          code: "workflow_session_not_found",
+        },
+        { status: 409 },
+      );
+    }
+
+    throw error;
+  }
 
   const savedUserMessage = await saveWorkflowMessage({
     leadId: session.leadId,

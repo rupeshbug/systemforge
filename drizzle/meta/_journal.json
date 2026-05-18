@@ -22,6 +22,13 @@
       "when": 1779079976707,
       "tag": "0002_known_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779085155315,
+      "tag": "0003_gorgeous_rage",
+      "breakpoints": true
     }
   ]
 }

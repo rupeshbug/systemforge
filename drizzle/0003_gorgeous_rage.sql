@@ -1,0 +1,1 @@
+ALTER TABLE "lead_messages" ADD COLUMN "workflow_id" uuid;
