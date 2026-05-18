@@ -24,6 +24,7 @@ export default function IntakePage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState(statusItems);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -79,6 +80,8 @@ export default function IntakePage() {
         ok: boolean;
         text?: string;
         error?: string;
+        route?: string;
+        currentStep?: string;
       };
 
       if (!response.ok || !data.ok) {
@@ -92,6 +95,13 @@ export default function IntakePage() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: data.text ?? "",
+        },
+      ]);
+      setWorkflowStatus([
+        { label: "Current route", value: data.route ?? "pending" },
+        {
+          label: "Current step",
+          value: data.currentStep ?? "message_received",
         },
       ]);
     } catch {
@@ -130,7 +140,7 @@ export default function IntakePage() {
         </div>
 
         <div className="grid gap-4 border-b border-(--line) px-5 py-4 sm:grid-cols-2 sm:px-6">
-          {statusItems.map((item) => (
+          {workflowStatus.map((item) => (
             <MetricCard
               key={item.label}
               label={item.label}
