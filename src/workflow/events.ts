@@ -9,6 +9,9 @@ export const WORKFLOW_EVENT_TYPES = [
   "AI_ANALYSIS_FAILED",
   "AI_RESPONSE_GENERATED",
   "HUMAN_REVIEW_REQUIRED",
+  "HUMAN_APPROVED",
+  "HUMAN_REJECTED",
+  "WORKFLOW_COMPLETED",
 ] as const;
 
 export type WorkflowEventType = (typeof WORKFLOW_EVENT_TYPES)[number];

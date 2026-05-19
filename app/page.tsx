@@ -133,6 +133,13 @@ export default function Home() {
             >
               Try The Interface
             </Link>
+
+            <Link
+              href="/reviews"
+              className="mt-3 inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-stone-100 transition hover:bg-white/10"
+            >
+              Open Review Queue
+            </Link>
           </div>
         </div>
       </section>

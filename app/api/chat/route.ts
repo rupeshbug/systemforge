@@ -26,10 +26,12 @@ import {
 import {
   buildContactCompletionResponse,
   buildContactConfirmationResponse,
+  buildPendingReviewResponse,
   buildRouteResponse,
 } from "@/src/workflow/responses";
 import { routeDeterministically } from "@/src/workflow/routing/deterministic";
 import type { WorkflowEvent } from "@/src/workflow/routing/types";
+import { getMissingContactFields } from "@/src/workflow/lead/contactDetails";
 
 const ChatRequestSchema = z.object({
   prompt: z.string().trim().min(1),
@@ -116,6 +118,10 @@ function extractUseCaseFromReply(
   }
 
   return trimmed;
+}
+
+function isHumanReviewCandidateRoute(route: string | null | undefined) {
+  return route === "human_contact" || route === "demo_request";
 }
 
 export async function POST(request: Request) {
@@ -225,9 +231,14 @@ export async function POST(request: Request) {
     : null;
 
   if (contactCompletionResponse || contactConfirmationResponse) {
-    const responseText =
-      contactCompletionResponse ?? contactConfirmationResponse ?? "";
     const responseRoute = currentRoute ?? "clarification_required";
+    const shouldEnterHumanReview =
+      responseRoute !== "clarification_required" &&
+      isHumanReviewCandidateRoute(responseRoute) &&
+      getMissingContactFields(mergedLeadDetails).length === 0;
+    const responseText = shouldEnterHumanReview
+      ? buildPendingReviewResponse(responseRoute, mergedLeadDetails)
+      : contactCompletionResponse ?? contactConfirmationResponse ?? "";
     const nextIntentSignals = mergeIntentSignals(
       currentMemory.intentSignals,
       currentRoute ? deriveIntentSignalsFromRoute(currentRoute) : null,
@@ -245,6 +256,7 @@ export async function POST(request: Request) {
       responseRoute,
       mergedLeadDetails,
       currentMemory.qualificationStage,
+      shouldEnterHumanReview,
     );
     const workflowEvents: WorkflowEvent[] = [
       {
@@ -265,10 +277,20 @@ export async function POST(request: Request) {
       },
       {
         type: "STATIC_RESPONSE_SENT",
-        step: "route_resolved",
+        step: shouldEnterHumanReview
+          ? "waiting_for_human_review"
+          : "route_resolved",
         payload: { route: responseRoute },
       },
     ];
+
+    if (shouldEnterHumanReview) {
+      workflowEvents.push({
+        type: "HUMAN_REVIEW_REQUIRED",
+        step: "waiting_for_human_review",
+        payload: { route: responseRoute, source: "deterministic_followup" },
+      });
+    }
 
     await persistDeterministicWorkflowTurn({
       leadId: session.leadId,
@@ -276,8 +298,10 @@ export async function POST(request: Request) {
       userMessage: prompt,
       assistantMessage: responseText,
       route: responseRoute,
-      currentStep: "route_resolved",
-      status: "active",
+      currentStep: shouldEnterHumanReview
+        ? "waiting_for_human_review"
+        : "route_resolved",
+      status: shouldEnterHumanReview ? "waiting_for_human_review" : "active",
       leadDetails: getLeadDetailsPatch(mergedLeadDetails),
       leadProfile: currentMemory.leadProfile,
       intentSignals: nextIntentSignals,
@@ -316,7 +340,9 @@ export async function POST(request: Request) {
       prompt,
       text: responseText,
       route: responseRoute,
-      currentStep: "route_resolved",
+      currentStep: shouldEnterHumanReview
+        ? "waiting_for_human_review"
+        : "route_resolved",
       events: workflowEvents,
     });
   }
@@ -341,11 +367,19 @@ export async function POST(request: Request) {
   });
 
   if (deterministicResult.matched && deterministicResult.route !== "needs_ai_analysis") {
-    const responseText = buildRouteResponse(
-      deterministicResult.route,
-      mergedLeadDetails,
-      currentMemory.leadProfile,
-    );
+    const shouldEnterHumanReview =
+      isHumanReviewCandidateRoute(deterministicResult.route) &&
+      getMissingContactFields(mergedLeadDetails).length === 0;
+    const responseText = shouldEnterHumanReview
+      ? buildPendingReviewResponse(
+          deterministicResult.route,
+          mergedLeadDetails,
+        )
+      : buildRouteResponse(
+          deterministicResult.route,
+          mergedLeadDetails,
+          currentMemory.leadProfile,
+        );
     const nextIntentSignals = mergeIntentSignals(
       currentMemory.intentSignals,
       deriveIntentSignalsFromRoute(deterministicResult.route),
@@ -363,7 +397,15 @@ export async function POST(request: Request) {
       deterministicResult.route,
       mergedLeadDetails,
       currentMemory.qualificationStage,
+      shouldEnterHumanReview,
     );
+    if (shouldEnterHumanReview) {
+      workflowEvents.push({
+        type: "HUMAN_REVIEW_REQUIRED",
+        step: "waiting_for_human_review",
+        payload: { route: deterministicResult.route, source: "deterministic" },
+      });
+    }
 
     await persistDeterministicWorkflowTurn({
       leadId: session.leadId,
@@ -371,8 +413,10 @@ export async function POST(request: Request) {
       userMessage: prompt,
       assistantMessage: responseText ?? "",
       route: deterministicResult.route,
-      currentStep: deterministicResult.currentStep,
-      status: "active",
+      currentStep: shouldEnterHumanReview
+        ? "waiting_for_human_review"
+        : deterministicResult.currentStep,
+      status: shouldEnterHumanReview ? "waiting_for_human_review" : "active",
       leadDetails: getLeadDetailsPatch(mergedLeadDetails),
       leadProfile: currentMemory.leadProfile,
       intentSignals: nextIntentSignals,
@@ -388,7 +432,9 @@ export async function POST(request: Request) {
     logWorkflowDebug("deterministic_turn_persisted", {
       workflowId: session.workflowId,
       route: deterministicResult.route,
-      currentStep: deterministicResult.currentStep,
+      currentStep: shouldEnterHumanReview
+        ? "waiting_for_human_review"
+        : deterministicResult.currentStep,
       responseText,
       nextIntentSignals,
       nextInteractionState,
@@ -412,7 +458,9 @@ export async function POST(request: Request) {
       prompt,
       text: responseText,
       route: deterministicResult.route,
-      currentStep: deterministicResult.currentStep,
+      currentStep: shouldEnterHumanReview
+        ? "waiting_for_human_review"
+        : deterministicResult.currentStep,
       events: workflowEvents,
     });
   }
@@ -520,18 +568,20 @@ export async function POST(request: Request) {
     analysis.intentSignalsPatch,
   );
   const responseText =
-    analysis.route === "clarification_required"
-      ? buildRouteResponse(
-          analysis.route,
-          resolvedLeadDetails,
-          nextLeadProfile,
-          analysis.responseText,
-        )
-      : buildRouteResponse(
-          analysis.route,
-          resolvedLeadDetails,
-          nextLeadProfile,
-        );
+    analysis.requiresHumanReview
+      ? buildPendingReviewResponse(analysis.route, resolvedLeadDetails)
+      : analysis.route === "clarification_required"
+        ? buildRouteResponse(
+            analysis.route,
+            resolvedLeadDetails,
+            nextLeadProfile,
+            analysis.responseText,
+          )
+        : buildRouteResponse(
+            analysis.route,
+            resolvedLeadDetails,
+            nextLeadProfile,
+          );
   const nextInteractionState = computeInteractionStateFromRoute({
     route: analysis.route,
     lead: resolvedLeadDetails,

@@ -146,12 +146,20 @@ export default function IntakePage() {
             </h1>
           </div>
 
-          <Link
-            href="/"
-            className="rounded-full border border-(--line) bg-white/70 px-4 py-2 text-sm text-stone-700 transition hover:bg-white"
-          >
-            Back
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/reviews"
+              className="rounded-full border border-(--line) bg-stone-950 px-4 py-2 text-sm text-white transition hover:bg-stone-800"
+            >
+              Review Queue
+            </Link>
+            <Link
+              href="/"
+              className="rounded-full border border-(--line) bg-white/70 px-4 py-2 text-sm text-stone-700 transition hover:bg-white"
+            >
+              Back
+            </Link>
+          </div>
         </div>
 
         <div className="grid gap-4 border-b border-(--line) px-5 py-4 sm:grid-cols-2 sm:px-6">

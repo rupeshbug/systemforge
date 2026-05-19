@@ -6,6 +6,7 @@ import {
   workflows,
   workflowEvents,
 } from "@/src/db/schema";
+import { buildReviewOutcomeResponse } from "@/src/workflow/responses";
 import type { MessageAnalysis } from "@/src/workflow/analysis/schema";
 import type { KnownLeadDetails } from "@/src/workflow/lead/contactDetails";
 import {
@@ -112,6 +113,14 @@ type PersistAiAnalysisCompletionInput = {
   result: Record<string, unknown>;
 };
 
+type ReviewDecision = "approved" | "rejected";
+
+type ResolveHumanReviewInput = {
+  workflowId: string;
+  decision: ReviewDecision;
+  reviewerNote?: string;
+};
+
 function serializePayload(payload: Record<string, unknown> | undefined) {
   return payload ? JSON.stringify(payload) : null;
 }
@@ -122,6 +131,18 @@ function serializeResult(result: Record<string, unknown> | undefined) {
 
 function serializeMemoryState<T>(value: T) {
   return JSON.stringify(value);
+}
+
+function parseResultValue(result: string | null | undefined) {
+  if (!result) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(result) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 function buildLeadUpdateValues(details: LeadDetailsPatch) {
@@ -581,6 +602,228 @@ export async function getWorkflowContext(workflowId: string, leadId: string) {
       role: message.role as "user" | "assistant",
       content: message.content,
     })),
+  };
+}
+
+export async function listHumanReviewWorkflows() {
+  const rows = await db
+    .select({
+      workflowId: workflows.id,
+      leadId: workflows.leadId,
+      route: workflows.route,
+      qualificationStage: workflows.qualificationStage,
+      status: workflows.status,
+      currentStep: workflows.currentStep,
+      updatedAt: workflows.updatedAt,
+      result: workflows.result,
+      leadName: leads.name,
+      leadEmail: leads.email,
+      leadPhone: leads.phone,
+      leadCompany: leads.company,
+    })
+    .from(workflows)
+    .innerJoin(leads, eq(workflows.leadId, leads.id))
+    .where(eq(workflows.status, "waiting_for_human_review"))
+    .orderBy(desc(workflows.updatedAt));
+
+  return rows.map((row) => ({
+    workflowId: row.workflowId,
+    leadId: row.leadId,
+    route: row.route as WorkflowRoute | null,
+    qualificationStage:
+      (row.qualificationStage as QualificationStage | null) ??
+      DEFAULT_QUALIFICATION_STAGE,
+    status: row.status,
+    currentStep: row.currentStep as WorkflowStep,
+    updatedAt: row.updatedAt,
+    result: parseResultValue(row.result),
+    lead: {
+      name: row.leadName,
+      email: row.leadEmail,
+      phone: row.leadPhone,
+      businessName: row.leadCompany,
+    },
+  }));
+}
+
+export async function getHumanReviewWorkflow(workflowId: string) {
+  const [workflow] = await db
+    .select({
+      workflowId: workflows.id,
+      leadId: workflows.leadId,
+      route: workflows.route,
+      qualificationStage: workflows.qualificationStage,
+      status: workflows.status,
+      currentStep: workflows.currentStep,
+      updatedAt: workflows.updatedAt,
+      startedAt: workflows.startedAt,
+      result: workflows.result,
+      leadName: leads.name,
+      leadEmail: leads.email,
+      leadPhone: leads.phone,
+      leadCompany: leads.company,
+    })
+    .from(workflows)
+    .innerJoin(leads, eq(workflows.leadId, leads.id))
+    .where(eq(workflows.id, workflowId))
+    .limit(1);
+
+  if (!workflow) {
+    return null;
+  }
+
+  const recentMessages = await db
+    .select({
+      id: leadMessages.id,
+      role: leadMessages.role,
+      content: leadMessages.message,
+      createdAt: leadMessages.createdAt,
+    })
+    .from(leadMessages)
+    .where(eq(leadMessages.workflowId, workflowId))
+    .orderBy(desc(leadMessages.createdAt))
+    .limit(24);
+
+  const events = await db
+    .select({
+      id: workflowEvents.id,
+      eventType: workflowEvents.eventType,
+      step: workflowEvents.step,
+      payload: workflowEvents.payload,
+      createdAt: workflowEvents.createdAt,
+    })
+    .from(workflowEvents)
+    .where(eq(workflowEvents.workflowId, workflowId))
+    .orderBy(desc(workflowEvents.createdAt))
+    .limit(40);
+
+  const context = await getWorkflowContext(workflowId, workflow.leadId);
+
+  return {
+    workflow: {
+      id: workflow.workflowId,
+      leadId: workflow.leadId,
+      route: workflow.route as WorkflowRoute | null,
+      qualificationStage:
+        (workflow.qualificationStage as QualificationStage | null) ??
+        DEFAULT_QUALIFICATION_STAGE,
+      status: workflow.status,
+      currentStep: workflow.currentStep as WorkflowStep,
+      updatedAt: workflow.updatedAt,
+      startedAt: workflow.startedAt,
+      result: parseResultValue(workflow.result),
+    },
+    lead: {
+      name: workflow.leadName,
+      email: workflow.leadEmail,
+      phone: workflow.leadPhone,
+      businessName: workflow.leadCompany,
+    },
+    memory: {
+      leadProfile: context.workflow?.leadProfile ?? EMPTY_LEAD_PROFILE,
+      intentSignals: context.workflow?.intentSignals ?? EMPTY_INTENT_SIGNALS,
+      interactionState:
+        context.workflow?.interactionState ?? EMPTY_INTERACTION_STATE,
+    },
+    messages: recentMessages.reverse().map((message) => ({
+      id: message.id,
+      role: message.role as "user" | "assistant",
+      content: message.content,
+      createdAt: message.createdAt,
+    })),
+    events: events.reverse().map((event) => ({
+      id: event.id,
+      eventType: event.eventType,
+      step: event.step,
+      payload: parseResultValue(event.payload),
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
+export async function resolveHumanReview({
+  workflowId,
+  decision,
+  reviewerNote,
+}: ResolveHumanReviewInput) {
+  const [workflow] = await db
+    .select({
+      id: workflows.id,
+      route: workflows.route,
+      result: workflows.result,
+      leadId: workflows.leadId,
+      leadProfile: workflows.leadProfile,
+      intentSignals: workflows.intentSignals,
+      interactionState: workflows.interactionState,
+      qualificationStage: workflows.qualificationStage,
+    })
+    .from(workflows)
+    .where(eq(workflows.id, workflowId))
+    .limit(1);
+
+  if (!workflow) {
+    return null;
+  }
+
+  const assistantMessageId = crypto.randomUUID();
+  const eventType = decision === "approved" ? "HUMAN_APPROVED" : "HUMAN_REJECTED";
+  const assistantMessage =
+    buildReviewOutcomeResponse(
+      decision,
+      workflow.route as WorkflowRoute | null,
+    );
+  const existingResult = parseResultValue(workflow.result) ?? {};
+  const reviewResult = {
+    ...existingResult,
+    review: {
+      decision,
+      reviewerNote: reviewerNote?.trim() || null,
+      reviewedAt: new Date().toISOString(),
+    },
+  };
+
+  const queries: [BatchQuery, ...BatchQuery[]] = [
+    db.insert(leadMessages).values({
+      id: assistantMessageId,
+      leadId: workflow.leadId,
+      workflowId,
+      role: "assistant",
+      message: assistantMessage,
+    }),
+    db.insert(workflowEvents).values([
+      {
+        workflowId,
+        eventType,
+        step: "completed",
+        payload: serializePayload({
+          reviewerNote: reviewerNote?.trim() || null,
+        }),
+      },
+      {
+        workflowId,
+        eventType: "WORKFLOW_COMPLETED",
+        step: "completed",
+        payload: serializePayload({ decision }),
+      },
+    ]),
+    db
+      .update(workflows)
+      .set({
+        status: decision === "approved" ? "completed" : "rejected",
+        currentStep: "completed",
+        lastMessageId: assistantMessageId,
+        result: serializeResult(reviewResult),
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(workflows.id, workflowId)),
+  ];
+
+  await db.batch(queries);
+
+  return {
+    workflowId: workflow.id,
+    decision,
   };
 }
 

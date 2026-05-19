@@ -30,6 +30,64 @@ function buildRouteFollowUp(route: WorkflowRoute | null | undefined) {
   }
 }
 
+export function buildPendingReviewResponse(
+  route: WorkflowRoute | null | undefined,
+  lead: KnownLeadDetails | null | undefined,
+) {
+  const missingContactFields = getMissingContactFields(lead);
+  const missingFieldsText = formatContactFieldList(missingContactFields);
+  const contactAsk =
+    missingContactFields.length > 0
+      ? ` Please share your ${missingFieldsText} so our team can follow up properly.`
+      : "";
+
+  switch (route) {
+    case "pricing":
+      return `Thanks, I’ve shared your pricing request with our team for review.${contactAsk}`;
+    case "demo_request":
+      return `Thanks, I’ve shared your demo request with our team for review.${contactAsk}`;
+    case "human_contact":
+      return `Thanks, I’ve shared your request with our team for review.${contactAsk}`;
+    case "onboarding":
+      return `Thanks, I’ve shared your onboarding request with our team for review.${contactAsk}`;
+    default:
+      return `Thanks, I’ve shared this with our team for review.${contactAsk}`;
+  }
+}
+
+export function buildReviewOutcomeResponse(
+  decision: "approved" | "rejected",
+  route: WorkflowRoute | null | undefined,
+) {
+  if (decision === "approved") {
+    switch (route) {
+      case "pricing":
+        return "Thanks, your pricing request has been approved for follow-up. Our team will reach out soon.";
+      case "demo_request":
+        return "Thanks, your demo request has been approved for follow-up. Our team will reach out soon.";
+      case "human_contact":
+        return "Thanks, your request has been approved for follow-up. Our team will reach out soon.";
+      case "onboarding":
+        return "Thanks, your onboarding request has been approved for follow-up. Our team will reach out soon.";
+      default:
+        return "Thanks, your request has been approved for follow-up. Our team will reach out soon.";
+    }
+  }
+
+  switch (route) {
+    case "pricing":
+      return "Thanks for your interest. Our team reviewed this request, but we are not moving this pricing inquiry forward right now.";
+    case "demo_request":
+      return "Thanks for your interest. Our team reviewed this request, but we are not moving this demo inquiry forward right now.";
+    case "human_contact":
+      return "Thanks for reaching out. Our team reviewed this request, but we are not moving this follow-up forward right now.";
+    case "onboarding":
+      return "Thanks for reaching out. Our team reviewed this request, but we are not moving this onboarding request forward right now.";
+    default:
+      return "Thanks for reaching out. Our team reviewed this request, but we are not moving it forward right now.";
+  }
+}
+
 export function buildContactCompletionResponse(
   route: WorkflowRoute | null | undefined,
   previousLead: KnownLeadDetails | null | undefined,
