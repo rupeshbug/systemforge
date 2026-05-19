@@ -1,4 +1,4 @@
-import type { ContactField } from "@/src/workflow/analysis/schema";
+import type { ContactField } from "@/src/workflow/memory";
 
 export type KnownLeadDetails = {
   name: string | null;
@@ -84,7 +84,7 @@ export function extractLeadDetailsFromMessage(message: string) {
   );
 
   const namePatterns = [
-    /(?:my name is|i am|i'm)\s+([a-z][a-z]+(?:\s+[a-z][a-z]+){0,2})/i,
+    /(?:my name is|the name is|i am|i'm)\s+([a-z][a-z]+(?:\s+[a-z][a-z]+){0,2})(?=\s+(?:and|email|mail|phone)\b|[.,!?]|$)/i,
   ];
 
   const companyPatterns = [

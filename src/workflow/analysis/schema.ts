@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  ContactFieldSchema,
+  InteractionStatePatchSchema,
+  LeadProfilePatchSchema,
+  QualificationStageSchema,
+  IntentSignalsPatchSchema,
+} from "@/src/workflow/memory";
 
 export const AnalysisRouteSchema = z.enum([
   "pricing",
@@ -9,24 +16,7 @@ export const AnalysisRouteSchema = z.enum([
   "clarification_required",
 ]);
 
-export const AnalysisIntentSchema = z.enum([
-  "pricing",
-  "demo_request",
-  "human_contact",
-  "onboarding",
-  "general_inquiry",
-  "irrelevant",
-  "clarification",
-]);
-
-export const ContactFieldSchema = z.enum([
-  "name",
-  "businessName",
-  "email",
-  "phone",
-]);
-
-export type ContactField = z.infer<typeof ContactFieldSchema>;
+export const AnalysisIntentSchema = z.string().trim().min(1);
 
 export const ExtractedContactSchema = z.object({
   name: z.string().nullable(),
@@ -45,6 +35,10 @@ export const MessageAnalysisSchema = z.object({
   summary: z.string(),
   missingContactFields: z.array(ContactFieldSchema),
   extractedContact: ExtractedContactSchema,
+  leadProfilePatch: LeadProfilePatchSchema,
+  intentSignalsPatch: IntentSignalsPatchSchema,
+  interactionStatePatch: InteractionStatePatchSchema,
+  nextQualificationStage: QualificationStageSchema,
   responseText: z.string(),
 });
 

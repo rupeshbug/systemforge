@@ -6,6 +6,13 @@ import {
   mergeLeadDetails,
 } from "@/src/workflow/lead/contactDetails";
 import {
+  computeInteractionStateFromRoute,
+  deriveIntentSignalsFromRoute,
+  deriveQualificationStage,
+  mergeIntentSignals,
+  mergeLeadProfile,
+} from "@/src/workflow/memory";
+import {
   appendWorkflowEvents,
   getLeadDetailsFromAnalysis,
   getLeadDetailsPatch,
@@ -16,7 +23,11 @@ import {
   persistDeterministicWorkflowTurn,
   WorkflowSessionNotFoundError,
 } from "@/src/workflow/persistence";
-import { buildRouteResponse } from "@/src/workflow/responses";
+import {
+  buildContactCompletionResponse,
+  buildContactConfirmationResponse,
+  buildRouteResponse,
+} from "@/src/workflow/responses";
 import { routeDeterministically } from "@/src/workflow/routing/deterministic";
 import type { WorkflowEvent } from "@/src/workflow/routing/types";
 
@@ -35,6 +46,75 @@ function logWorkflowDebug(
   }
 
   console.log(`[WorkflowDebug] ${stage}`, details);
+}
+
+function isContactConfirmationPrompt(message: string) {
+  const normalized = message.toLowerCase().replace(/[^\w\s]/g, " ").trim();
+
+  const asksIfKnown =
+    (normalized.includes("do you have") ||
+      normalized.includes("you have my") ||
+      normalized.includes("have my") ||
+      normalized.includes("have that info")) &&
+    (normalized.includes("email") ||
+      normalized.includes("mail") ||
+      normalized.includes("number") ||
+      normalized.includes("phone") ||
+      normalized.includes("contact") ||
+      normalized.includes("info"));
+
+  const repeatsSharedInfo =
+    (normalized.includes("i gave you") || normalized.includes("i shared")) &&
+    (normalized.includes("name") ||
+      normalized.includes("email") ||
+      normalized.includes("number") ||
+      normalized.includes("phone") ||
+      normalized.includes("contact") ||
+      normalized.includes("info"));
+
+  return asksIfKnown || repeatsSharedInfo;
+}
+
+function responseAsksForQualification(responseText: string | null | undefined) {
+  if (!responseText) {
+    return false;
+  }
+
+  const normalized = responseText.toLowerCase();
+
+  return (
+    normalized.includes("use case") ||
+    normalized.includes("budget") ||
+    normalized.includes("timeline") ||
+    normalized.includes("team")
+  );
+}
+
+function extractUseCaseFromReply(
+  latestUserMessage: string,
+  recentMessages: { role: "user" | "assistant"; content: string }[],
+) {
+  const lastAssistantMessage = [...recentMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+
+  if (!lastAssistantMessage) {
+    return null;
+  }
+
+  const lastAssistantText = lastAssistantMessage.content.toLowerCase();
+
+  if (!lastAssistantText.includes("use case")) {
+    return null;
+  }
+
+  const trimmed = latestUserMessage.trim();
+
+  if (trimmed.length < 12) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 export async function POST(request: Request) {
@@ -100,13 +180,145 @@ export async function POST(request: Request) {
     initialContext.lead ?? null,
     extractedLeadDetails,
   );
+  const currentMemory = {
+    qualificationStage:
+      initialContext.workflow?.qualificationStage ?? "collecting_information",
+    leadProfile: initialContext.workflow?.leadProfile ?? {
+      goal: null,
+      useCase: null,
+      timeline: null,
+      budget: null,
+      teamSize: null,
+    },
+    intentSignals: initialContext.workflow?.intentSignals ?? {
+      wantsPricing: false,
+      wantsDemo: false,
+      wantsHumanContact: false,
+      wantsOnboarding: false,
+    },
+    interactionState: initialContext.workflow?.interactionState ?? {
+      hasAskedForContactDetails: false,
+      missingContactFields: [],
+      hasAskedForQualificationDetails: false,
+      missingQualificationFields: [],
+    },
+  };
 
   logWorkflowDebug("lead_details_resolved", {
     workflowId: session.workflowId,
     extractedLeadDetails,
     mergedLeadDetails,
     recentMessageCount: initialContext.recentMessages.length,
+    currentMemory,
   });
+
+  const currentRoute = initialContext.workflow?.route ?? null;
+  const contactCompletionResponse = buildContactCompletionResponse(
+    currentRoute,
+    initialContext.lead ?? null,
+    mergedLeadDetails,
+    currentMemory.leadProfile,
+  );
+  const contactConfirmationResponse = isContactConfirmationPrompt(prompt)
+    ? buildContactConfirmationResponse(currentRoute, mergedLeadDetails)
+    : null;
+
+  if (contactCompletionResponse || contactConfirmationResponse) {
+    const responseText =
+      contactCompletionResponse ?? contactConfirmationResponse ?? "";
+    const responseRoute = currentRoute ?? "clarification_required";
+    const nextIntentSignals = mergeIntentSignals(
+      currentMemory.intentSignals,
+      currentRoute ? deriveIntentSignalsFromRoute(currentRoute) : null,
+    );
+    const nextInteractionState = computeInteractionStateFromRoute({
+      route: responseRoute,
+      lead: mergedLeadDetails,
+      leadProfile: currentMemory.leadProfile,
+      previousState: currentMemory.interactionState,
+      hasAskedForQualificationDetails:
+        currentMemory.interactionState.hasAskedForQualificationDetails ||
+        responseAsksForQualification(responseText),
+    });
+    const nextQualificationStage = deriveQualificationStage(
+      responseRoute,
+      mergedLeadDetails,
+      currentMemory.qualificationStage,
+    );
+    const workflowEvents: WorkflowEvent[] = [
+      {
+        type: "MESSAGE_RECEIVED",
+        step: "message_received",
+        payload: { promptLength: prompt.length },
+      },
+      {
+        type: "DETERMINISTIC_ROUTE_MATCHED",
+        step: "deterministic_routing",
+        payload: {
+          route: responseRoute,
+          matchedBy: "keyword",
+          reason: contactCompletionResponse
+            ? "contact_details_completed"
+            : "contact_details_confirmed",
+        },
+      },
+      {
+        type: "STATIC_RESPONSE_SENT",
+        step: "route_resolved",
+        payload: { route: responseRoute },
+      },
+    ];
+
+    await persistDeterministicWorkflowTurn({
+      leadId: session.leadId,
+      workflowId: session.workflowId,
+      userMessage: prompt,
+      assistantMessage: responseText,
+      route: responseRoute,
+      currentStep: "route_resolved",
+      status: "active",
+      leadDetails: getLeadDetailsPatch(mergedLeadDetails),
+      leadProfile: currentMemory.leadProfile,
+      intentSignals: nextIntentSignals,
+      interactionState: nextInteractionState,
+      qualificationStage: nextQualificationStage,
+      events: workflowEvents,
+      result: {
+        source: "deterministic",
+        responseText,
+      },
+    });
+
+    logWorkflowDebug("deterministic_contact_followup_persisted", {
+      workflowId: session.workflowId,
+      route: responseRoute,
+      responseText,
+      nextIntentSignals,
+      nextInteractionState,
+      nextQualificationStage,
+    });
+
+    logWorkflowDebug("memory_snapshot", {
+      workflowId: session.workflowId,
+      route: responseRoute,
+      qualificationStage: nextQualificationStage,
+      leadProfile: currentMemory.leadProfile,
+      intentSignals: nextIntentSignals,
+      interactionState: nextInteractionState,
+      knownLead: mergedLeadDetails,
+    });
+
+    return Response.json({
+      ok: true,
+      leadId: session.leadId,
+      workflowId: session.workflowId,
+      prompt,
+      text: responseText,
+      route: responseRoute,
+      currentStep: "route_resolved",
+      events: workflowEvents,
+    });
+  }
 
   const workflowEvents: WorkflowEvent[] = [
     {
@@ -131,6 +343,25 @@ export async function POST(request: Request) {
     const responseText = buildRouteResponse(
       deterministicResult.route,
       mergedLeadDetails,
+      currentMemory.leadProfile,
+    );
+    const nextIntentSignals = mergeIntentSignals(
+      currentMemory.intentSignals,
+      deriveIntentSignalsFromRoute(deterministicResult.route),
+    );
+    const nextInteractionState = computeInteractionStateFromRoute({
+      route: deterministicResult.route,
+      lead: mergedLeadDetails,
+      leadProfile: currentMemory.leadProfile,
+      previousState: currentMemory.interactionState,
+      hasAskedForQualificationDetails:
+        currentMemory.interactionState.hasAskedForQualificationDetails ||
+        responseAsksForQualification(responseText),
+    });
+    const nextQualificationStage = deriveQualificationStage(
+      deterministicResult.route,
+      mergedLeadDetails,
+      currentMemory.qualificationStage,
     );
 
     await persistDeterministicWorkflowTurn({
@@ -142,6 +373,10 @@ export async function POST(request: Request) {
       currentStep: deterministicResult.currentStep,
       status: "active",
       leadDetails: getLeadDetailsPatch(mergedLeadDetails),
+      leadProfile: currentMemory.leadProfile,
+      intentSignals: nextIntentSignals,
+      interactionState: nextInteractionState,
+      qualificationStage: nextQualificationStage,
       events: workflowEvents,
       result: {
         source: "deterministic",
@@ -154,6 +389,19 @@ export async function POST(request: Request) {
       route: deterministicResult.route,
       currentStep: deterministicResult.currentStep,
       responseText,
+      nextIntentSignals,
+      nextInteractionState,
+      nextQualificationStage,
+    });
+
+    logWorkflowDebug("memory_snapshot", {
+      workflowId: session.workflowId,
+      route: deterministicResult.route,
+      qualificationStage: nextQualificationStage,
+      leadProfile: currentMemory.leadProfile,
+      intentSignals: nextIntentSignals,
+      interactionState: nextInteractionState,
+      knownLead: mergedLeadDetails,
     });
 
     return Response.json({
@@ -182,6 +430,10 @@ export async function POST(request: Request) {
     userMessage: prompt,
     route: deterministicResult.route,
     leadDetails: getLeadDetailsPatch(mergedLeadDetails),
+    leadProfile: currentMemory.leadProfile,
+    intentSignals: currentMemory.intentSignals,
+    interactionState: currentMemory.interactionState,
+    qualificationStage: currentMemory.qualificationStage,
     events: [...workflowEvents, ...aiStartEvents],
     result: {
       source: "deterministic",
@@ -202,9 +454,13 @@ export async function POST(request: Request) {
       userMessage: prompt,
       recentMessages: initialContext.recentMessages,
       knownLead: mergedLeadDetails,
+      leadProfile: currentMemory.leadProfile,
+      intentSignals: currentMemory.intentSignals,
+      interactionState: currentMemory.interactionState,
       workflow: {
         route: deterministicResult.route,
         currentStep: "ai_analysis_running",
+        qualificationStage: currentMemory.qualificationStage,
       },
     });
   } catch (error) {
@@ -244,15 +500,48 @@ export async function POST(request: Request) {
       phone: analysis.extractedContact.phone,
     },
   );
+  const useCaseFallback =
+    analysis.leadProfilePatch.useCase ??
+    extractUseCaseFromReply(prompt, initialContext.recentMessages);
 
+  const nextLeadProfile = mergeLeadProfile(
+    currentMemory.leadProfile,
+    {
+      ...analysis.leadProfilePatch,
+      useCase: useCaseFallback,
+    },
+  );
+  const nextIntentSignals = mergeIntentSignals(
+    mergeIntentSignals(
+      currentMemory.intentSignals,
+      deriveIntentSignalsFromRoute(analysis.route),
+    ),
+    analysis.intentSignalsPatch,
+  );
   const responseText =
     analysis.route === "clarification_required"
       ? buildRouteResponse(
           analysis.route,
           resolvedLeadDetails,
+          nextLeadProfile,
           analysis.responseText,
         )
-      : buildRouteResponse(analysis.route, resolvedLeadDetails);
+      : buildRouteResponse(
+          analysis.route,
+          resolvedLeadDetails,
+          nextLeadProfile,
+        );
+  const nextInteractionState = computeInteractionStateFromRoute({
+    route: analysis.route,
+    lead: resolvedLeadDetails,
+    leadProfile: nextLeadProfile,
+    previousState: currentMemory.interactionState,
+    qualificationPatch: analysis.interactionStatePatch,
+    hasAskedForQualificationDetails:
+      analysis.interactionStatePatch.hasAskedForQualificationDetails ??
+      (responseAsksForQualification(responseText) ||
+        analysis.route === "clarification_required"),
+  });
 
   const currentStep = analysis.requiresHumanReview
     ? "waiting_for_human_review"
@@ -260,6 +549,12 @@ export async function POST(request: Request) {
   const status = analysis.requiresHumanReview
     ? "waiting_for_human_review"
     : "active";
+  const nextQualificationStage = deriveQualificationStage(
+    analysis.route,
+    resolvedLeadDetails,
+    analysis.nextQualificationStage,
+    analysis.requiresHumanReview,
+  );
 
   const analysisEvents: WorkflowEvent[] = [
     {
@@ -294,6 +589,10 @@ export async function POST(request: Request) {
     currentStep,
     responseText: responseText ?? analysis.responseText,
     extractedContact: analysis.extractedContact,
+    leadProfilePatch: analysis.leadProfilePatch,
+    intentSignalsPatch: analysis.intentSignalsPatch,
+    interactionStatePatch: analysis.interactionStatePatch,
+    nextQualificationStage,
   });
 
   await persistAiAnalysisCompletion({
@@ -304,6 +603,10 @@ export async function POST(request: Request) {
     currentStep,
     status,
     leadDetails: getLeadDetailsFromAnalysis(analysis),
+    leadProfile: nextLeadProfile,
+    intentSignals: nextIntentSignals,
+    interactionState: nextInteractionState,
+    qualificationStage: nextQualificationStage,
     events: analysisEvents,
     result: {
       source: "ai_analysis",
@@ -316,6 +619,20 @@ export async function POST(request: Request) {
     route: analysis.route,
     currentStep,
     status,
+    nextLeadProfile,
+    nextIntentSignals,
+    nextInteractionState,
+    nextQualificationStage,
+  });
+
+  logWorkflowDebug("memory_snapshot", {
+    workflowId: session.workflowId,
+    route: analysis.route,
+    qualificationStage: nextQualificationStage,
+    leadProfile: nextLeadProfile,
+    intentSignals: nextIntentSignals,
+    interactionState: nextInteractionState,
+    knownLead: resolvedLeadDetails,
   });
 
   return Response.json({

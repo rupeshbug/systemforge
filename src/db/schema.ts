@@ -32,6 +32,12 @@ export const workflows = pgTable("workflows", {
   status: text("status").notNull().default("active"),
   currentStep: text("current_step").notNull().default("message_received"),
   route: text("route"),
+  qualificationStage: text("qualification_stage")
+    .notNull()
+    .default("collecting_information"),
+  leadProfile: text("lead_profile"),
+  intentSignals: text("intent_signals"),
+  interactionState: text("interaction_state"),
   lastMessageId: uuid("last_message_id").references(() => leadMessages.id),
   result: text("result"),
   startedAt: timestamp("started_at").defaultNow().notNull(),

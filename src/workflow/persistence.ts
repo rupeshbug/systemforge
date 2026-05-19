@@ -8,6 +8,20 @@ import {
 } from "@/src/db/schema";
 import type { MessageAnalysis } from "@/src/workflow/analysis/schema";
 import type { KnownLeadDetails } from "@/src/workflow/lead/contactDetails";
+import {
+  DEFAULT_QUALIFICATION_STAGE,
+  EMPTY_INTENT_SIGNALS,
+  EMPTY_INTERACTION_STATE,
+  EMPTY_LEAD_PROFILE,
+  type InteractionState,
+  InteractionStateSchema,
+  type IntentSignals,
+  IntentSignalsSchema,
+  type LeadProfile,
+  LeadProfileSchema,
+  parseJsonWithSchema,
+  type QualificationStage,
+} from "@/src/workflow/memory";
 import type { WorkflowStep } from "@/src/workflow/states";
 import type {
   WorkflowEvent,
@@ -60,6 +74,10 @@ type PersistDeterministicTurnInput = {
   currentStep: WorkflowStep;
   status: string;
   leadDetails: LeadDetailsPatch;
+  leadProfile: LeadProfile;
+  intentSignals: IntentSignals;
+  interactionState: InteractionState;
+  qualificationStage: QualificationStage;
   events: WorkflowEvent[];
   result: Record<string, unknown>;
 };
@@ -70,6 +88,10 @@ type PersistAiAnalysisStartInput = {
   userMessage: string;
   route: WorkflowRoute;
   leadDetails: LeadDetailsPatch;
+  leadProfile: LeadProfile;
+  intentSignals: IntentSignals;
+  interactionState: InteractionState;
+  qualificationStage: QualificationStage;
   events: WorkflowEvent[];
   result: Record<string, unknown>;
 };
@@ -82,6 +104,10 @@ type PersistAiAnalysisCompletionInput = {
   currentStep: WorkflowStep;
   status: string;
   leadDetails: LeadDetailsPatch;
+  leadProfile: LeadProfile;
+  intentSignals: IntentSignals;
+  interactionState: InteractionState;
+  qualificationStage: QualificationStage;
   events: WorkflowEvent[];
   result: Record<string, unknown>;
 };
@@ -92,6 +118,10 @@ function serializePayload(payload: Record<string, unknown> | undefined) {
 
 function serializeResult(result: Record<string, unknown> | undefined) {
   return result ? JSON.stringify(result) : null;
+}
+
+function serializeMemoryState<T>(value: T) {
+  return JSON.stringify(value);
 }
 
 function buildLeadUpdateValues(details: LeadDetailsPatch) {
@@ -150,6 +180,10 @@ export async function getOrCreateWorkflowSession({
       leadId: leadIdValue,
       currentStep: "message_received",
       status: "active",
+      qualificationStage: DEFAULT_QUALIFICATION_STAGE,
+      leadProfile: serializeMemoryState(EMPTY_LEAD_PROFILE),
+      intentSignals: serializeMemoryState(EMPTY_INTENT_SIGNALS),
+      interactionState: serializeMemoryState(EMPTY_INTERACTION_STATE),
       updatedAt: now,
     }),
   ]);
@@ -256,6 +290,10 @@ export async function persistDeterministicWorkflowTurn({
   currentStep,
   status,
   leadDetails,
+  leadProfile,
+  intentSignals,
+  interactionState,
+  qualificationStage,
   events,
   result,
 }: PersistDeterministicTurnInput) {
@@ -302,6 +340,10 @@ export async function persistDeterministicWorkflowTurn({
       .update(workflows)
       .set({
         route,
+        qualificationStage,
+        leadProfile: serializeMemoryState(leadProfile),
+        intentSignals: serializeMemoryState(intentSignals),
+        interactionState: serializeMemoryState(interactionState),
         currentStep,
         status,
         lastMessageId: assistantMessageId,
@@ -326,6 +368,10 @@ export async function persistAiAnalysisStart({
   userMessage,
   route,
   leadDetails,
+  leadProfile,
+  intentSignals,
+  interactionState,
+  qualificationStage,
   events,
   result,
 }: PersistAiAnalysisStartInput) {
@@ -364,6 +410,10 @@ export async function persistAiAnalysisStart({
       .update(workflows)
       .set({
         route,
+        qualificationStage,
+        leadProfile: serializeMemoryState(leadProfile),
+        intentSignals: serializeMemoryState(intentSignals),
+        interactionState: serializeMemoryState(interactionState),
         currentStep: "ai_analysis_running",
         status: "active",
         lastMessageId: userMessageId,
@@ -389,6 +439,10 @@ export async function persistAiAnalysisCompletion({
   currentStep,
   status,
   leadDetails,
+  leadProfile,
+  intentSignals,
+  interactionState,
+  qualificationStage,
   events,
   result,
 }: PersistAiAnalysisCompletionInput) {
@@ -427,6 +481,10 @@ export async function persistAiAnalysisCompletion({
       .update(workflows)
       .set({
         route,
+        qualificationStage,
+        leadProfile: serializeMemoryState(leadProfile),
+        intentSignals: serializeMemoryState(intentSignals),
+        interactionState: serializeMemoryState(interactionState),
         currentStep,
         status,
         lastMessageId: assistantMessageId,
@@ -449,6 +507,10 @@ export async function getWorkflowContext(workflowId: string, leadId: string) {
     .select({
       id: workflows.id,
       route: workflows.route,
+      qualificationStage: workflows.qualificationStage,
+      leadProfile: workflows.leadProfile,
+      intentSignals: workflows.intentSignals,
+      interactionState: workflows.interactionState,
       currentStep: workflows.currentStep,
       result: workflows.result,
     })
@@ -484,6 +546,24 @@ export async function getWorkflowContext(workflowId: string, leadId: string) {
       ? {
           id: workflow.id,
           route: workflow.route as WorkflowRoute | null,
+          qualificationStage:
+            (workflow.qualificationStage as QualificationStage | null) ??
+            DEFAULT_QUALIFICATION_STAGE,
+          leadProfile: parseJsonWithSchema(
+            workflow.leadProfile,
+            LeadProfileSchema,
+            EMPTY_LEAD_PROFILE,
+          ),
+          intentSignals: parseJsonWithSchema(
+            workflow.intentSignals,
+            IntentSignalsSchema,
+            EMPTY_INTENT_SIGNALS,
+          ),
+          interactionState: parseJsonWithSchema(
+            workflow.interactionState,
+            InteractionStateSchema,
+            EMPTY_INTERACTION_STATE,
+          ),
           currentStep: workflow.currentStep as WorkflowStep,
           result: workflow.result ? JSON.parse(workflow.result) : null,
         }

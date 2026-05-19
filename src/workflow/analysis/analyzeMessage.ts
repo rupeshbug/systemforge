@@ -1,5 +1,11 @@
 import { groq } from "@ai-sdk/groq";
 import { generateText, Output } from "ai";
+import type {
+  InteractionState,
+  IntentSignals,
+  LeadProfile,
+  QualificationStage,
+} from "@/src/workflow/memory";
 import type { WorkflowStep } from "@/src/workflow/states";
 import { MESSAGE_ANALYSIS_SYSTEM_PROMPT } from "@/src/workflow/analysis/prompt";
 import {
@@ -22,9 +28,13 @@ type AnalyzeMessageInput = {
     email: string | null;
     phone: string | null;
   };
+  leadProfile: LeadProfile;
+  intentSignals: IntentSignals;
+  interactionState: InteractionState;
   workflow: {
     route: WorkflowRoute | null;
     currentStep: WorkflowStep;
+    qualificationStage: QualificationStage;
   };
 };
 
@@ -32,6 +42,9 @@ export async function analyzeMessage({
   userMessage,
   recentMessages,
   knownLead,
+  leadProfile,
+  intentSignals,
+  interactionState,
   workflow,
 }: AnalyzeMessageInput): Promise<MessageAnalysis> {
   const { output } = await generateText({
@@ -45,6 +58,9 @@ export async function analyzeMessage({
         latestUserMessage: userMessage,
         workflow,
         knownLead,
+        leadProfile,
+        intentSignals,
+        interactionState,
         recentMessages,
       },
       null,
