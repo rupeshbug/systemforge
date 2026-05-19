@@ -33,7 +33,7 @@ export default async function ReviewDetailPage({
               Workflow {data.workflow.id.slice(0, 8)}
             </h1>
             <p className="mt-2 text-sm text-stone-600">
-              Inspect the workflow context, then approve or reject the follow-up.
+              Review the lead context and conversation, then approve or reject the follow-up.
             </p>
           </div>
 
@@ -53,17 +53,17 @@ export default async function ReviewDetailPage({
         <div className="grid flex-1 gap-6 overflow-y-auto p-5 sm:p-6 lg:grid-cols-[22rem_1fr_22rem]">
           <aside className="space-y-4">
             <Panel title="Lead">
-              <ReviewField label="Name" value={data.lead.name ?? "—"} />
-              <ReviewField label="Email" value={data.lead.email ?? "—"} />
-              <ReviewField label="Phone" value={data.lead.phone ?? "—"} />
+              <ReviewField label="Name" value={data.lead.name ?? "-"} />
+              <ReviewField label="Email" value={data.lead.email ?? "-"} />
+              <ReviewField label="Phone" value={data.lead.phone ?? "-"} />
               <ReviewField
                 label="Business"
-                value={data.lead.businessName ?? "—"}
+                value={data.lead.businessName ?? "-"}
               />
             </Panel>
 
             <Panel title="Workflow">
-              <ReviewField label="Route" value={data.workflow.route ?? "—"} />
+              <ReviewField label="Route" value={data.workflow.route ?? "-"} />
               <ReviewField
                 label="Stage"
                 value={data.workflow.qualificationStage}
@@ -71,28 +71,9 @@ export default async function ReviewDetailPage({
               <ReviewField label="Step" value={data.workflow.currentStep} />
               <ReviewField label="Status" value={data.workflow.status} />
             </Panel>
-
-            <Panel title="Memory">
-              <ReviewField
-                label="Use case"
-                value={data.memory.leadProfile.useCase ?? "—"}
-              />
-              <ReviewField
-                label="Timeline"
-                value={data.memory.leadProfile.timeline ?? "—"}
-              />
-              <ReviewField
-                label="Budget"
-                value={data.memory.leadProfile.budget ?? "—"}
-              />
-              <ReviewField
-                label="Team size"
-                value={data.memory.leadProfile.teamSize ?? "—"}
-              />
-            </Panel>
           </aside>
 
-          <section className="space-y-4">
+          <section>
             <Panel title="Conversation">
               <div className="space-y-4">
                 {data.messages.map((message) => (
@@ -111,31 +92,6 @@ export default async function ReviewDetailPage({
                       {message.content}
                     </p>
                   </article>
-                ))}
-              </div>
-            </Panel>
-
-            <Panel title="Events">
-              <div className="space-y-3">
-                {data.events.map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-2xl border border-(--line) bg-stone-50/85 px-4 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm font-medium text-stone-900">
-                        {event.eventType}
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        {event.step ?? "—"}
-                      </p>
-                    </div>
-                    {event.payload && (
-                      <pre className="mt-3 overflow-x-auto rounded-xl bg-white/80 p-3 text-xs leading-6 text-stone-700">
-                        {JSON.stringify(event.payload, null, 2)}
-                      </pre>
-                    )}
-                  </div>
                 ))}
               </div>
             </Panel>
@@ -187,12 +143,6 @@ export default async function ReviewDetailPage({
                   .
                 </div>
               )}
-            </Panel>
-
-            <Panel title="Current Result">
-              <pre className="overflow-x-auto rounded-2xl bg-stone-50/85 p-4 text-xs leading-6 text-stone-700">
-                {JSON.stringify(data.workflow.result, null, 2)}
-              </pre>
             </Panel>
           </aside>
         </div>

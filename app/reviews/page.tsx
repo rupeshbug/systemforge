@@ -75,7 +75,7 @@ export default async function ReviewsPage() {
                       </h2>
                     </div>
 
-                    <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-medium text-stone-700">
+                    <span className="rounded-full bg-(--accent-soft) px-3 py-1 text-xs font-medium text-stone-700">
                       {workflow.status}
                     </span>
                   </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 const starterPrompts = [
@@ -18,12 +19,24 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  variant?: "default" | "review_outcome";
 };
 
+function logIntakeDebug(stage: string, details: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.log(`[IntakeDebug] ${stage}`, details);
+}
+
 export default function IntakePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isHydrating, setIsHydrating] = useState(false);
   const [leadId, setLeadId] = useState<string | null>(null);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState(statusItems);
@@ -36,6 +49,170 @@ export default function IntakePage() {
     },
   ]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  function applyOutcomeVariant(
+    incomingMessages: ChatMessage[],
+    status: string | undefined,
+  ): ChatMessage[] {
+    if (
+      (status !== "completed" && status !== "rejected") ||
+      incomingMessages.length === 0
+    ) {
+      return incomingMessages.map((entry) => ({
+        ...entry,
+        variant: "default",
+      }));
+    }
+
+    const lastAssistantIndex = [...incomingMessages]
+      .map((entry, index) => ({ entry, index }))
+      .reverse()
+      .find(({ entry }) => entry.role === "assistant")?.index;
+
+    return incomingMessages.map((entry, index) => ({
+      ...entry,
+      variant:
+        index === lastAssistantIndex ? "review_outcome" : "default",
+    }));
+  }
+
+  useEffect(() => {
+    const workflowIdParam = searchParams.get("workflowId");
+    const leadIdParam = searchParams.get("leadId");
+
+    logIntakeDebug("search_params_read", {
+      workflowIdParam,
+      leadIdParam,
+      currentWorkflowId: workflowId,
+      currentLeadId: leadId,
+    });
+
+    if (!workflowIdParam || !leadIdParam) {
+      return;
+    }
+
+    if (workflowId === workflowIdParam && leadId === leadIdParam) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function hydrateSession() {
+      setIsHydrating(true);
+      setError("");
+      logIntakeDebug("hydrate_started", {
+        workflowIdParam,
+        leadIdParam,
+      });
+
+      try {
+        const response = await fetch(
+          `/api/workflows/${workflowIdParam}?leadId=${leadIdParam}`,
+        );
+        const data = (await response.json()) as {
+          ok: boolean;
+          error?: string;
+          workflowId?: string;
+          leadId?: string;
+          route?: string | null;
+          currentStep?: string;
+          status?: string;
+          messages?: ChatMessage[];
+        };
+
+        logIntakeDebug("hydrate_response_received", {
+          ok: response.ok,
+          workflowId: data.workflowId,
+          leadId: data.leadId,
+          route: data.route,
+          currentStep: data.currentStep,
+          status: data.status,
+          messageCount: data.messages?.length ?? 0,
+        });
+
+        if (!response.ok || !data.ok) {
+          if (!cancelled) {
+            setLeadId(null);
+            setWorkflowId(null);
+            setWorkflowStatus(statusItems);
+            setMessages([
+              {
+                id: "welcome",
+                role: "assistant",
+                content:
+                  "Welcome to SystemForge. Share the lead's message and I will respond as the qualification assistant.",
+              },
+            ]);
+            setError(data.error ?? "Unable to restore this workflow session.");
+            logIntakeDebug("hydrate_failed", {
+              workflowIdParam,
+              leadIdParam,
+              error: data.error ?? "Unable to restore this workflow session.",
+            });
+            router.replace("/intake");
+          }
+          return;
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setLeadId(data.leadId ?? null);
+        setWorkflowId(data.workflowId ?? null);
+        setMessages(
+          data.messages && data.messages.length > 0
+            ? applyOutcomeVariant(data.messages, data.status)
+            : [
+                {
+                  id: "welcome",
+                  role: "assistant",
+                  content:
+                    "Welcome to SystemForge. Share the lead's message and I will respond as the qualification assistant.",
+                  variant: "default",
+                },
+              ],
+        );
+        setWorkflowStatus([
+          { label: "Current route", value: data.route ?? "pending" },
+          {
+            label: "Current step",
+            value: data.currentStep ?? "message_received",
+          },
+        ]);
+        logIntakeDebug("hydrate_applied", {
+          workflowId: data.workflowId,
+          leadId: data.leadId,
+          route: data.route,
+          currentStep: data.currentStep,
+          messageCount: data.messages?.length ?? 0,
+        });
+      } catch {
+        if (!cancelled) {
+          setError("Unable to restore this workflow session.");
+          logIntakeDebug("hydrate_failed", {
+            workflowIdParam,
+            leadIdParam,
+            error: "Unable to restore this workflow session.",
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsHydrating(false);
+          logIntakeDebug("hydrate_finished", {
+            workflowIdParam,
+            leadIdParam,
+          });
+        }
+      }
+    }
+
+    void hydrateSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [leadId, router, searchParams, workflowId]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -68,6 +245,11 @@ export default function IntakePage() {
     setMessage("");
     setError("");
     setIsSubmitting(true);
+    logIntakeDebug("submit_started", {
+      promptLength: trimmedMessage.length,
+      leadId,
+      workflowId,
+    });
 
     try {
       const response = await fetch("/api/chat", {
@@ -93,10 +275,24 @@ export default function IntakePage() {
         workflowId?: string;
       };
 
+      logIntakeDebug("submit_response_received", {
+        ok: response.ok,
+        route: data.route,
+        currentStep: data.currentStep,
+        leadId: data.leadId,
+        workflowId: data.workflowId,
+        error: data.error,
+        code: data.code,
+      });
+
       if (!response.ok || !data.ok) {
         if (data.code === "workflow_session_not_found") {
           setLeadId(null);
           setWorkflowId(null);
+          logIntakeDebug("submit_session_reset", {
+            code: data.code,
+          });
+          router.replace("/intake");
         }
         setError(data.error ?? "Something went wrong.");
         return;
@@ -108,10 +304,20 @@ export default function IntakePage() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: data.text ?? "",
+          variant: "default",
         },
       ]);
       setLeadId(data.leadId ?? null);
       setWorkflowId(data.workflowId ?? null);
+      if (data.workflowId && data.leadId) {
+        logIntakeDebug("submit_url_updated", {
+          workflowId: data.workflowId,
+          leadId: data.leadId,
+        });
+        router.replace(
+          `/intake?workflowId=${data.workflowId}&leadId=${data.leadId}`,
+        );
+      }
       setWorkflowStatus([
         { label: "Current route", value: data.route ?? "pending" },
         {
@@ -121,8 +327,15 @@ export default function IntakePage() {
       ]);
     } catch {
       setError("Unable to reach the chat API.");
+      logIntakeDebug("submit_failed", {
+        error: "Unable to reach the chat API.",
+      });
     } finally {
       setIsSubmitting(false);
+      logIntakeDebug("submit_finished", {
+        leadId,
+        workflowId,
+      });
     }
   }
 
@@ -181,14 +394,22 @@ export default function IntakePage() {
               {messages.map((entry) => (
                 <article
                   key={entry.id}
-                  className={`max-w-[85%] rounded-3xl border px-4 py-4 shadow-sm ${
-                    entry.role === "user"
-                      ? "ml-auto border-[rgba(201,111,58,0.22)] bg-[rgba(201,111,58,0.10)]"
-                      : "border-[rgba(35,68,58,0.18)] bg-[rgba(35,68,58,0.08)]"
-                  }`}
+                  className={
+                    entry.variant === "review_outcome"
+                      ? "max-w-[88%] rounded-3xl border border-[rgba(35,68,58,0.22)] bg-[rgba(35,68,58,0.14)] px-4 py-4 shadow-sm"
+                      : `max-w-[85%] rounded-3xl border px-4 py-4 shadow-sm ${
+                          entry.role === "user"
+                            ? "ml-auto border-[rgba(201,111,58,0.22)] bg-[rgba(201,111,58,0.10)]"
+                            : "border-[rgba(35,68,58,0.18)] bg-[rgba(35,68,58,0.08)]"
+                        }`
+                  }
                 >
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-stone-500">
-                    {entry.role === "user" ? "Lead" : "Assistant"}
+                    {entry.variant === "review_outcome"
+                      ? "Review Outcome"
+                      : entry.role === "user"
+                        ? "Lead"
+                        : "Assistant"}
                   </p>
                   <p className="mt-3 text-sm leading-7 text-stone-700">
                     {entry.content}
@@ -221,17 +442,22 @@ export default function IntakePage() {
 
                 <div className="mt-3 flex flex-col gap-3 border-t border-(--line) pt-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-stone-500">
-                    The active workflow will be created or resumed after
-                    submission.
+                    {isHydrating
+                      ? "Restoring the saved workflow session..."
+                      : "The active workflow will be created or resumed after submission."}
                   </p>
 
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isHydrating}
                     className="rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Sending..." : "Send Message"}
+                    {isHydrating
+                      ? "Restoring..."
+                      : isSubmitting
+                        ? "Sending..."
+                        : "Send Message"}
                   </button>
                 </div>
               </div>

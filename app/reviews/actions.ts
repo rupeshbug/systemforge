@@ -13,13 +13,20 @@ export async function submitHumanReview(formData: FormData) {
     throw new Error("Invalid review submission.");
   }
 
-  await resolveHumanReview({
+  const resolved = await resolveHumanReview({
     workflowId,
     decision,
     reviewerNote,
   });
 
+  if (!resolved) {
+    throw new Error("Workflow not found.");
+  }
+
   revalidatePath("/reviews");
   revalidatePath(`/reviews/${workflowId}`);
-  redirect(`/reviews/${workflowId}`);
+  revalidatePath("/intake");
+  redirect(
+    `/intake?workflowId=${resolved.workflowId}&leadId=${resolved.leadId}`,
+  );
 }

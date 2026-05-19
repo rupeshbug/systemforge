@@ -121,6 +121,21 @@ type ResolveHumanReviewInput = {
   reviewerNote?: string;
 };
 
+type WorkflowSessionSnapshot = {
+  workflowId: string;
+  leadId: string;
+  route: WorkflowRoute | null;
+  currentStep: WorkflowStep;
+  status: string;
+  qualificationStage: QualificationStage;
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: Date;
+  }>;
+};
+
 function serializePayload(payload: Record<string, unknown> | undefined) {
   return payload ? JSON.stringify(payload) : null;
 }
@@ -741,6 +756,56 @@ export async function getHumanReviewWorkflow(workflowId: string) {
   };
 }
 
+export async function getWorkflowSessionSnapshot(
+  workflowId: string,
+  leadId: string,
+): Promise<WorkflowSessionSnapshot | null> {
+  const [workflow] = await db
+    .select({
+      workflowId: workflows.id,
+      leadId: workflows.leadId,
+      route: workflows.route,
+      currentStep: workflows.currentStep,
+      status: workflows.status,
+      qualificationStage: workflows.qualificationStage,
+    })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.leadId, leadId)))
+    .limit(1);
+
+  if (!workflow) {
+    return null;
+  }
+
+  const messages = await db
+    .select({
+      id: leadMessages.id,
+      role: leadMessages.role,
+      content: leadMessages.message,
+      createdAt: leadMessages.createdAt,
+    })
+    .from(leadMessages)
+    .where(eq(leadMessages.workflowId, workflowId))
+    .orderBy(leadMessages.createdAt);
+
+  return {
+    workflowId: workflow.workflowId,
+    leadId: workflow.leadId,
+    route: workflow.route as WorkflowRoute | null,
+    currentStep: workflow.currentStep as WorkflowStep,
+    status: workflow.status,
+    qualificationStage:
+      (workflow.qualificationStage as QualificationStage | null) ??
+      DEFAULT_QUALIFICATION_STAGE,
+    messages: messages.map((message) => ({
+      id: message.id,
+      role: message.role as "user" | "assistant",
+      content: message.content,
+      createdAt: message.createdAt,
+    })),
+  };
+}
+
 export async function resolveHumanReview({
   workflowId,
   decision,
@@ -823,6 +888,7 @@ export async function resolveHumanReview({
 
   return {
     workflowId: workflow.id,
+    leadId: workflow.leadId,
     decision,
   };
 }
