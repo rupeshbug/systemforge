@@ -49,12 +49,64 @@ type LeadDetailsPatch = {
   phone?: string;
 };
 
+type BatchQuery = Parameters<typeof db.batch>[0][number];
+
+type PersistDeterministicTurnInput = {
+  leadId: string;
+  workflowId: string;
+  userMessage: string;
+  assistantMessage: string;
+  route: WorkflowRoute;
+  currentStep: WorkflowStep;
+  status: string;
+  leadDetails: LeadDetailsPatch;
+  events: WorkflowEvent[];
+  result: Record<string, unknown>;
+};
+
+type PersistAiAnalysisStartInput = {
+  leadId: string;
+  workflowId: string;
+  userMessage: string;
+  route: WorkflowRoute;
+  leadDetails: LeadDetailsPatch;
+  events: WorkflowEvent[];
+  result: Record<string, unknown>;
+};
+
+type PersistAiAnalysisCompletionInput = {
+  leadId: string;
+  workflowId: string;
+  assistantMessage: string;
+  route: WorkflowRoute;
+  currentStep: WorkflowStep;
+  status: string;
+  leadDetails: LeadDetailsPatch;
+  events: WorkflowEvent[];
+  result: Record<string, unknown>;
+};
+
 function serializePayload(payload: Record<string, unknown> | undefined) {
   return payload ? JSON.stringify(payload) : null;
 }
 
 function serializeResult(result: Record<string, unknown> | undefined) {
   return result ? JSON.stringify(result) : null;
+}
+
+function buildLeadUpdateValues(details: LeadDetailsPatch) {
+  const entries = Object.entries(details).filter(
+    ([, value]) => typeof value === "string" && value.trim().length > 0,
+  );
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return {
+    ...Object.fromEntries(entries),
+    updatedAt: new Date(),
+  };
 }
 
 // first message should start a workflow, later messages should continue that workflow
@@ -83,31 +135,28 @@ export async function getOrCreateWorkflowSession({
     throw new WorkflowSessionNotFoundError();
   }
 
-  const [lead] = await db
-    .insert(leads)
-    .values({
-      source: "website_chat",
-      updatedAt: new Date(),
-    })
-    .returning({
-      leadId: leads.id,
-    });
+  const leadIdValue = crypto.randomUUID();
+  const workflowIdValue = crypto.randomUUID();
+  const now = new Date();
 
-  const [workflow] = await db
-    .insert(workflows)
-    .values({
-      leadId: lead.leadId,
+  await db.batch([
+    db.insert(leads).values({
+      id: leadIdValue,
+      source: "website_chat",
+      updatedAt: now,
+    }),
+    db.insert(workflows).values({
+      id: workflowIdValue,
+      leadId: leadIdValue,
       currentStep: "message_received",
       status: "active",
-      updatedAt: new Date(),
-    })
-    .returning({
-      workflowId: workflows.id,
-    });
+      updatedAt: now,
+    }),
+  ]);
 
   return {
-    leadId: lead.leadId,
-    workflowId: workflow.workflowId,
+    leadId: leadIdValue,
+    workflowId: workflowIdValue,
   };
 }
 
@@ -186,21 +235,213 @@ export async function updateLeadDetails(
   leadId: string,
   details: LeadDetailsPatch,
 ) {
-  const entries = Object.entries(details).filter(
-    ([, value]) => typeof value === "string" && value.trim().length > 0,
-  );
+  const values = buildLeadUpdateValues(details);
 
-  if (entries.length === 0) {
+  if (!values) {
     return;
   }
 
   await db
     .update(leads)
-    .set({
-      ...Object.fromEntries(entries),
-      updatedAt: new Date(),
-    })
+    .set(values)
     .where(eq(leads.id, leadId));
+}
+
+export async function persistDeterministicWorkflowTurn({
+  leadId,
+  workflowId,
+  userMessage,
+  assistantMessage,
+  route,
+  currentStep,
+  status,
+  leadDetails,
+  events,
+  result,
+}: PersistDeterministicTurnInput) {
+  const userMessageId = crypto.randomUUID();
+  const assistantMessageId = crypto.randomUUID();
+  const leadUpdateValues = buildLeadUpdateValues(leadDetails);
+
+  const queries: [BatchQuery, ...BatchQuery[]] = [
+    db.insert(leadMessages).values({
+      id: userMessageId,
+      leadId,
+      workflowId,
+      role: "user",
+      message: userMessage,
+    }),
+    ...(leadUpdateValues
+      ? [
+          db
+            .update(leads)
+            .set(leadUpdateValues)
+            .where(eq(leads.id, leadId)),
+        ]
+      : []),
+    ...(events.length > 0
+      ? [
+          db.insert(workflowEvents).values(
+            events.map((event) => ({
+              workflowId,
+              eventType: event.type,
+              step: event.step,
+              payload: serializePayload(event.payload),
+            })),
+          ),
+        ]
+      : []),
+    db.insert(leadMessages).values({
+      id: assistantMessageId,
+      leadId,
+      workflowId,
+      role: "assistant",
+      message: assistantMessage,
+    }),
+    db
+      .update(workflows)
+      .set({
+        route,
+        currentStep,
+        status,
+        lastMessageId: assistantMessageId,
+        result: serializeResult(result),
+        completedAt: status === "completed" ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workflows.id, workflowId)),
+  ];
+
+  await db.batch(queries);
+
+  return {
+    userMessageId,
+    assistantMessageId,
+  };
+}
+
+export async function persistAiAnalysisStart({
+  leadId,
+  workflowId,
+  userMessage,
+  route,
+  leadDetails,
+  events,
+  result,
+}: PersistAiAnalysisStartInput) {
+  const userMessageId = crypto.randomUUID();
+  const leadUpdateValues = buildLeadUpdateValues(leadDetails);
+
+  const queries: [BatchQuery, ...BatchQuery[]] = [
+    db.insert(leadMessages).values({
+      id: userMessageId,
+      leadId,
+      workflowId,
+      role: "user",
+      message: userMessage,
+    }),
+    ...(leadUpdateValues
+      ? [
+          db
+            .update(leads)
+            .set(leadUpdateValues)
+            .where(eq(leads.id, leadId)),
+        ]
+      : []),
+    ...(events.length > 0
+      ? [
+          db.insert(workflowEvents).values(
+            events.map((event) => ({
+              workflowId,
+              eventType: event.type,
+              step: event.step,
+              payload: serializePayload(event.payload),
+            })),
+          ),
+        ]
+      : []),
+    db
+      .update(workflows)
+      .set({
+        route,
+        currentStep: "ai_analysis_running",
+        status: "active",
+        lastMessageId: userMessageId,
+        result: serializeResult(result),
+        completedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workflows.id, workflowId)),
+  ];
+
+  await db.batch(queries);
+
+  return {
+    userMessageId,
+  };
+}
+
+export async function persistAiAnalysisCompletion({
+  leadId,
+  workflowId,
+  assistantMessage,
+  route,
+  currentStep,
+  status,
+  leadDetails,
+  events,
+  result,
+}: PersistAiAnalysisCompletionInput) {
+  const assistantMessageId = crypto.randomUUID();
+  const leadUpdateValues = buildLeadUpdateValues(leadDetails);
+
+  const queries: [BatchQuery, ...BatchQuery[]] = [
+    db.insert(leadMessages).values({
+      id: assistantMessageId,
+      leadId,
+      workflowId,
+      role: "assistant",
+      message: assistantMessage,
+    }),
+    ...(leadUpdateValues
+      ? [
+          db
+            .update(leads)
+            .set(leadUpdateValues)
+            .where(eq(leads.id, leadId)),
+        ]
+      : []),
+    ...(events.length > 0
+      ? [
+          db.insert(workflowEvents).values(
+            events.map((event) => ({
+              workflowId,
+              eventType: event.type,
+              step: event.step,
+              payload: serializePayload(event.payload),
+            })),
+          ),
+        ]
+      : []),
+    db
+      .update(workflows)
+      .set({
+        route,
+        currentStep,
+        status,
+        lastMessageId: assistantMessageId,
+        result: serializeResult(result),
+        completedAt: status === "completed" ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workflows.id, workflowId)),
+  ];
+
+  await db.batch(queries);
+
+  return {
+    assistantMessageId,
+  };
 }
 
 export async function getWorkflowContext(workflowId: string, leadId: string) {

@@ -11,9 +11,9 @@ import {
   getLeadDetailsPatch,
   getOrCreateWorkflowSession,
   getWorkflowContext,
-  saveWorkflowMessage,
-  updateLeadDetails,
-  updateWorkflowState,
+  persistAiAnalysisCompletion,
+  persistAiAnalysisStart,
+  persistDeterministicWorkflowTurn,
   WorkflowSessionNotFoundError,
 } from "@/src/workflow/persistence";
 import { buildRouteResponse } from "@/src/workflow/responses";
@@ -25,6 +25,17 @@ const ChatRequestSchema = z.object({
   workflowId: z.string().uuid().optional(),
   leadId: z.string().uuid().optional(),
 });
+
+function logWorkflowDebug(
+  stage: string,
+  details: Record<string, unknown>,
+) {
+  if (process.env.WORKFLOW_DEBUG !== "true") {
+    return;
+  }
+
+  console.log(`[WorkflowDebug] ${stage}`, details);
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -74,24 +85,28 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  const savedUserMessage = await saveWorkflowMessage({
-    leadId: session.leadId,
+  logWorkflowDebug("session_ready", {
     workflowId: session.workflowId,
-    role: "user",
-    message: prompt,
+    leadId: session.leadId,
+    resumedSession: Boolean(workflowId && leadId),
   });
 
-  const initialContext = await getWorkflowContext(session.workflowId, session.leadId);
+  const initialContext = await getWorkflowContext(
+    session.workflowId,
+    session.leadId,
+  );
   const extractedLeadDetails = extractLeadDetailsFromMessage(prompt);
   const mergedLeadDetails = mergeLeadDetails(
     initialContext.lead ?? null,
     extractedLeadDetails,
   );
 
-  await updateLeadDetails(
-    session.leadId,
-    getLeadDetailsPatch(mergedLeadDetails),
-  );
+  logWorkflowDebug("lead_details_resolved", {
+    workflowId: session.workflowId,
+    extractedLeadDetails,
+    mergedLeadDetails,
+    recentMessageCount: initialContext.recentMessages.length,
+  });
 
   const workflowEvents: WorkflowEvent[] = [
     {
@@ -103,30 +118,42 @@ export async function POST(request: Request) {
 
   const deterministicResult = routeDeterministically(prompt);
   workflowEvents.push(...deterministicResult.events);
-  await appendWorkflowEvents(session.workflowId, workflowEvents);
+
+  logWorkflowDebug("deterministic_route_evaluated", {
+    workflowId: session.workflowId,
+    route: deterministicResult.route,
+    matched: deterministicResult.matched,
+    matchedBy: deterministicResult.matchedBy,
+    events: deterministicResult.events,
+  });
 
   if (deterministicResult.matched && deterministicResult.route !== "needs_ai_analysis") {
     const responseText = buildRouteResponse(
       deterministicResult.route,
       mergedLeadDetails,
     );
-    const assistantMessage = await saveWorkflowMessage({
+
+    await persistDeterministicWorkflowTurn({
       leadId: session.leadId,
       workflowId: session.workflowId,
-      role: "assistant",
-      message: responseText ?? "",
-    });
-
-    await updateWorkflowState({
-      workflowId: session.workflowId,
+      userMessage: prompt,
+      assistantMessage: responseText ?? "",
       route: deterministicResult.route,
       currentStep: deterministicResult.currentStep,
       status: "active",
-      lastMessageId: assistantMessage.id,
+      leadDetails: getLeadDetailsPatch(mergedLeadDetails),
+      events: workflowEvents,
       result: {
         source: "deterministic",
         responseText,
       },
+    });
+
+    logWorkflowDebug("deterministic_turn_persisted", {
+      workflowId: session.workflowId,
+      route: deterministicResult.route,
+      currentStep: deterministicResult.currentStep,
+      responseText,
     });
 
     return Response.json({
@@ -149,31 +176,35 @@ export async function POST(request: Request) {
     },
   ];
 
-  await appendWorkflowEvents(session.workflowId, aiStartEvents);
-  await updateWorkflowState({
+  await persistAiAnalysisStart({
+    leadId: session.leadId,
     workflowId: session.workflowId,
+    userMessage: prompt,
     route: deterministicResult.route,
-    currentStep: "ai_analysis_running",
-    status: "active",
-    lastMessageId: savedUserMessage.id,
+    leadDetails: getLeadDetailsPatch(mergedLeadDetails),
+    events: [...workflowEvents, ...aiStartEvents],
     result: {
       source: "deterministic",
       fallbackReason: "no_deterministic_match",
     },
   });
 
-  const context = await getWorkflowContext(session.workflowId, session.leadId);
+  logWorkflowDebug("ai_analysis_started", {
+    workflowId: session.workflowId,
+    route: deterministicResult.route,
+    currentStep: "ai_analysis_running",
+  });
 
   let analysis: MessageAnalysis;
 
   try {
     analysis = await analyzeMessage({
       userMessage: prompt,
-      recentMessages: context.recentMessages,
+      recentMessages: initialContext.recentMessages,
       knownLead: mergedLeadDetails,
       workflow: {
-        route: context.workflow?.route ?? deterministicResult.route,
-        currentStep: context.workflow?.currentStep ?? "ai_analysis_running",
+        route: deterministicResult.route,
+        currentStep: "ai_analysis_running",
       },
     });
   } catch (error) {
@@ -189,6 +220,11 @@ export async function POST(request: Request) {
     ];
 
     await appendWorkflowEvents(session.workflowId, failureEvents);
+
+    logWorkflowDebug("ai_analysis_failed", {
+      workflowId: session.workflowId,
+      error: error instanceof Error ? error.message : "Unknown AI analysis error",
+    });
 
     return Response.json(
       {
@@ -209,11 +245,6 @@ export async function POST(request: Request) {
     },
   );
 
-  await updateLeadDetails(
-    session.leadId,
-    getLeadDetailsFromAnalysis(analysis),
-  );
-
   const responseText =
     analysis.route === "clarification_required"
       ? buildRouteResponse(
@@ -222,13 +253,6 @@ export async function POST(request: Request) {
           analysis.responseText,
         )
       : buildRouteResponse(analysis.route, resolvedLeadDetails);
-
-  const assistantMessage = await saveWorkflowMessage({
-    leadId: session.leadId,
-    workflowId: session.workflowId,
-    role: "assistant",
-    message: responseText ?? analysis.responseText,
-  });
 
   const currentStep = analysis.requiresHumanReview
     ? "waiting_for_human_review"
@@ -262,17 +286,36 @@ export async function POST(request: Request) {
     });
   }
 
-  await appendWorkflowEvents(session.workflowId, analysisEvents);
-  await updateWorkflowState({
+  logWorkflowDebug("ai_analysis_completed", {
     workflowId: session.workflowId,
+    route: analysis.route,
+    confidence: analysis.confidence,
+    requiresHumanReview: analysis.requiresHumanReview,
+    currentStep,
+    responseText: responseText ?? analysis.responseText,
+    extractedContact: analysis.extractedContact,
+  });
+
+  await persistAiAnalysisCompletion({
+    leadId: session.leadId,
+    workflowId: session.workflowId,
+    assistantMessage: responseText ?? analysis.responseText,
     route: analysis.route,
     currentStep,
     status,
-    lastMessageId: assistantMessage.id,
+    leadDetails: getLeadDetailsFromAnalysis(analysis),
+    events: analysisEvents,
     result: {
       source: "ai_analysis",
       analysis,
     },
+  });
+
+  logWorkflowDebug("ai_turn_persisted", {
+    workflowId: session.workflowId,
+    route: analysis.route,
+    currentStep,
+    status,
   });
 
   return Response.json({
