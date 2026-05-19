@@ -33,7 +33,8 @@ export default async function ReviewDetailPage({
               Workflow {data.workflow.id.slice(0, 8)}
             </h1>
             <p className="mt-2 text-sm text-stone-600">
-              Review the lead context and conversation, then approve or reject the follow-up.
+              Review the lead context and conversation, then approve or reject
+              the follow-up.
             </p>
           </div>
 
@@ -44,7 +45,7 @@ export default async function ReviewDetailPage({
             >
               Back to queue
             </Link>
-            <span className="rounded-full bg-[var(--forest-soft)] px-4 py-2 text-sm text-stone-800">
+            <span className="rounded-full bg-(--forest-soft) px-4 py-2 text-sm text-stone-800">
               {data.workflow.status}
             </span>
           </div>

@@ -7,13 +7,13 @@ const features = [
     tone: "accent" as const,
   },
   {
-    label: "Durable workflows",
-    detail: "Persist state so lead qualification can resume safely.",
+    label: "Structured memory",
+    detail: "Carry forward lead context, qualification details, and workflow state.",
     tone: "forest" as const,
   },
   {
     label: "Human review",
-    detail: "Approve high-intent or uncertain leads before action.",
+    detail: "Pause high-intent follow-up until a human approves or rejects it.",
     tone: "neutral" as const,
   },
 ];
@@ -21,15 +21,15 @@ const features = [
 const capabilityCards = [
   {
     title: "Stateful execution",
-    text: "Messages do not disappear into a chat transcript. They move through explicit workflow states.",
+    text: "Messages do not disappear into a chat transcript. They move through explicit workflow states that can pause and resume safely.",
   },
   {
-    title: "Audit trail",
-    text: "Every important transition can be recorded as an event for debugging and review.",
+    title: "Audit trail and review",
+    text: "Every important transition is persisted so review decisions and workflow outcomes stay visible.",
   },
   {
     title: "Selective AI",
-    text: "Use the model only when deterministic logic is not enough.",
+    text: "Use the model only when deterministic routing is not enough, then merge the result into structured workflow memory.",
   },
 ];
 
@@ -49,8 +49,8 @@ export default function Home() {
                   SystemForge
                 </p>
                 <p className="mt-2 max-w-md text-sm leading-6 text-stone-600">
-                  Workflow-first AI lead qualification with durable state and
-                  explicit routing.
+                  Workflow-first AI lead qualification with structured memory,
+                  durable state, and human review.
                 </p>
               </div>
 
@@ -68,8 +68,8 @@ export default function Home() {
 
               <p className="max-w-xl text-base leading-7 text-stone-700 sm:text-lg">
                 SystemForge treats AI as one part of a controlled runtime. The
-                goal is a reliable lead intake flow that can route, persist,
-                pause, and resume.
+                goal is a reliable lead workflow that can route, remember
+                context, pause for review, and resume safely.
               </p>
             </div>
 
@@ -111,11 +111,11 @@ export default function Home() {
           <div>
             <p className="eyebrow text-[11px] text-stone-400">Try The Flow</p>
             <h2 className="mt-3 max-w-sm text-3xl font-semibold tracking-[-0.04em] text-white">
-              Open the lead intake workspace.
+              Run the intake and review flow.
             </h2>
             <p className="mt-4 max-w-md text-sm leading-7 text-stone-300">
-              Explore the intake experience in a dedicated workspace built for
-              submitting, routing, and reviewing inbound leads.
+              Explore a workflow that captures lead context, routes intent,
+              persists state, and hands off high-intent cases for human review.
             </p>
           </div>
 
@@ -123,8 +123,8 @@ export default function Home() {
             <div className="space-y-3">
               <PreviewRow label="Input" value="Lead message" />
               <PreviewRow label="Route" value="deterministic first" />
-              <PreviewRow label="AI step" value="only when needed" />
-              <PreviewRow label="Outcome" value="saved workflow state" />
+              <PreviewRow label="Memory" value="structured lead context" />
+              <PreviewRow label="Outcome" value="saved state + review decision" />
             </div>
 
             <Link
