@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 const starterPrompts = [
   "I want to book a demo for my company.",
@@ -31,6 +31,14 @@ function logIntakeDebug(stage: string, details: Record<string, unknown>) {
 }
 
 export default function IntakePage() {
+  return (
+    <Suspense fallback={<IntakePageFallback />}>
+      <IntakePageContent />
+    </Suspense>
+  );
+}
+
+function IntakePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("");
@@ -503,6 +511,31 @@ export default function IntakePage() {
               </div>
             </div>
           </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function IntakePageFallback() {
+  return (
+    <main className="relative flex min-h-screen items-center overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+      <div className="noise-overlay" />
+
+      <section className="glass-panel relative mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-4xl">
+        <div className="flex items-center justify-between border-b border-(--line) px-5 py-4 sm:px-6">
+          <div>
+            <p className="eyebrow text-[11px] text-stone-500">Lead Intake</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-stone-900">
+              Sales qualification console
+            </h1>
+          </div>
+        </div>
+
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="rounded-3xl border border-(--line) bg-white/75 px-6 py-5 text-sm text-stone-600">
+            Loading intake workspace...
+          </div>
         </div>
       </section>
     </main>
