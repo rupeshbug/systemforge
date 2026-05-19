@@ -2,8 +2,13 @@ import { z } from "zod";
 import { analyzeMessage } from "@/src/workflow/analysis/analyzeMessage";
 import type { MessageAnalysis } from "@/src/workflow/analysis/schema";
 import {
+  extractLeadDetailsFromMessage,
+  mergeLeadDetails,
+} from "@/src/workflow/lead/contactDetails";
+import {
   appendWorkflowEvents,
   getLeadDetailsFromAnalysis,
+  getLeadDetailsPatch,
   getOrCreateWorkflowSession,
   getWorkflowContext,
   saveWorkflowMessage,
@@ -11,6 +16,7 @@ import {
   updateWorkflowState,
   WorkflowSessionNotFoundError,
 } from "@/src/workflow/persistence";
+import { buildRouteResponse } from "@/src/workflow/responses";
 import { routeDeterministically } from "@/src/workflow/routing/deterministic";
 import type { WorkflowEvent } from "@/src/workflow/routing/types";
 
@@ -75,6 +81,18 @@ export async function POST(request: Request) {
     message: prompt,
   });
 
+  const initialContext = await getWorkflowContext(session.workflowId, session.leadId);
+  const extractedLeadDetails = extractLeadDetailsFromMessage(prompt);
+  const mergedLeadDetails = mergeLeadDetails(
+    initialContext.lead ?? null,
+    extractedLeadDetails,
+  );
+
+  await updateLeadDetails(
+    session.leadId,
+    getLeadDetailsPatch(mergedLeadDetails),
+  );
+
   const workflowEvents: WorkflowEvent[] = [
     {
       type: "MESSAGE_RECEIVED",
@@ -87,12 +105,16 @@ export async function POST(request: Request) {
   workflowEvents.push(...deterministicResult.events);
   await appendWorkflowEvents(session.workflowId, workflowEvents);
 
-  if (deterministicResult.responseText) {
+  if (deterministicResult.matched && deterministicResult.route !== "needs_ai_analysis") {
+    const responseText = buildRouteResponse(
+      deterministicResult.route,
+      mergedLeadDetails,
+    );
     const assistantMessage = await saveWorkflowMessage({
       leadId: session.leadId,
       workflowId: session.workflowId,
       role: "assistant",
-      message: deterministicResult.responseText,
+      message: responseText ?? "",
     });
 
     await updateWorkflowState({
@@ -103,7 +125,7 @@ export async function POST(request: Request) {
       lastMessageId: assistantMessage.id,
       result: {
         source: "deterministic",
-        responseText: deterministicResult.responseText,
+        responseText,
       },
     });
 
@@ -112,7 +134,7 @@ export async function POST(request: Request) {
       leadId: session.leadId,
       workflowId: session.workflowId,
       prompt,
-      text: deterministicResult.responseText,
+      text: responseText,
       route: deterministicResult.route,
       currentStep: deterministicResult.currentStep,
       events: workflowEvents,
@@ -148,12 +170,7 @@ export async function POST(request: Request) {
     analysis = await analyzeMessage({
       userMessage: prompt,
       recentMessages: context.recentMessages,
-      knownLead: context.lead ?? {
-        name: null,
-        businessName: null,
-        email: null,
-        phone: null,
-      },
+      knownLead: mergedLeadDetails,
       workflow: {
         route: context.workflow?.route ?? deterministicResult.route,
         currentStep: context.workflow?.currentStep ?? "ai_analysis_running",
@@ -182,13 +199,35 @@ export async function POST(request: Request) {
     );
   }
 
-  await updateLeadDetails(session.leadId, getLeadDetailsFromAnalysis(analysis));
+  const resolvedLeadDetails = mergeLeadDetails(
+    mergedLeadDetails,
+    {
+      name: analysis.extractedContact.name,
+      businessName: analysis.extractedContact.businessName,
+      email: analysis.extractedContact.email,
+      phone: analysis.extractedContact.phone,
+    },
+  );
+
+  await updateLeadDetails(
+    session.leadId,
+    getLeadDetailsFromAnalysis(analysis),
+  );
+
+  const responseText =
+    analysis.route === "clarification_required"
+      ? buildRouteResponse(
+          analysis.route,
+          resolvedLeadDetails,
+          analysis.responseText,
+        )
+      : buildRouteResponse(analysis.route, resolvedLeadDetails);
 
   const assistantMessage = await saveWorkflowMessage({
     leadId: session.leadId,
     workflowId: session.workflowId,
     role: "assistant",
-    message: analysis.responseText,
+    message: responseText ?? analysis.responseText,
   });
 
   const currentStep = analysis.requiresHumanReview
@@ -241,7 +280,7 @@ export async function POST(request: Request) {
     leadId: session.leadId,
     workflowId: session.workflowId,
     prompt,
-    text: analysis.responseText,
+    text: responseText ?? analysis.responseText,
     route: analysis.route,
     currentStep,
     events: [...workflowEvents, ...aiStartEvents, ...analysisEvents],

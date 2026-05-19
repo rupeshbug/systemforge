@@ -1,4 +1,3 @@
-import { getStaticResponse } from "@/src/workflow/routing/staticResponses";
 import type {
   DeterministicRoute,
   DeterministicRoutingResult,
@@ -115,7 +114,6 @@ function buildMatchedResult(
   route: Exclude<DeterministicRoute, "needs_ai_analysis">,
   matchedBy: MatchType,
 ): DeterministicRoutingResult {
-  const responseText = getStaticResponse(route) ?? undefined;
   const events: WorkflowEvent[] = [
     {
       type: "DETERMINISTIC_ROUTE_MATCHED",
@@ -124,20 +122,17 @@ function buildMatchedResult(
     },
   ];
 
-  if (responseText) {
-    events.push({
-      type: "STATIC_RESPONSE_SENT",
-      step: "route_resolved",
-      payload: { route },
-    });
-  }
+  events.push({
+    type: "STATIC_RESPONSE_SENT",
+    step: "route_resolved",
+    payload: { route },
+  });
 
   return {
     route,
     matched: true,
     matchedBy,
     currentStep: "route_resolved",
-    responseText,
     events,
   };
 }

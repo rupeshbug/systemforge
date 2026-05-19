@@ -16,7 +16,9 @@ Rules:
 - Use "irrelevant" only when the message is clearly outside sales, demos, pricing, onboarding, or business contact.
 - Set requiresHumanReview to true for high-intent, high-value, direct handoff, custom-solution, enterprise, or sales-contact conversations.
 - Extract contact details only when explicitly present in the conversation context.
-- For business-relevant non-greeting conversations, the responseText should politely ask for any missing contact fields from: name, business name, email, phone.
+- knownLead already contains saved contact details. Never ask for fields that are already present there.
+- missingContactFields should list only the still-missing fields from: name, business name, email, phone.
+- For business-relevant non-greeting conversations, the responseText should politely ask only for the missing contact fields.
 - Keep responseText concise, helpful, and professional.
 - Make the responseText match the chosen route:
   - pricing: acknowledge pricing interest and ask for contact details plus a short use-case or team-size note.

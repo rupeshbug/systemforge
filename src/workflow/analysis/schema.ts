@@ -26,6 +26,8 @@ export const ContactFieldSchema = z.enum([
   "phone",
 ]);
 
+export type ContactField = z.infer<typeof ContactFieldSchema>;
+
 export const ExtractedContactSchema = z.object({
   name: z.string().nullable(),
   businessName: z.string().nullable(),

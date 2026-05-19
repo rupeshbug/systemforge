@@ -7,6 +7,7 @@ import {
   workflowEvents,
 } from "@/src/db/schema";
 import type { MessageAnalysis } from "@/src/workflow/analysis/schema";
+import type { KnownLeadDetails } from "@/src/workflow/lead/contactDetails";
 import type { WorkflowStep } from "@/src/workflow/states";
 import type {
   WorkflowEvent,
@@ -270,5 +271,16 @@ export function getLeadDetailsFromAnalysis(
     company: analysis.extractedContact.businessName ?? undefined,
     email: analysis.extractedContact.email ?? undefined,
     phone: analysis.extractedContact.phone ?? undefined,
+  };
+}
+
+export function getLeadDetailsPatch(
+  lead: Partial<KnownLeadDetails>,
+): LeadDetailsPatch {
+  return {
+    name: lead.name ?? undefined,
+    company: lead.businessName ?? undefined,
+    email: lead.email ?? undefined,
+    phone: lead.phone ?? undefined,
   };
 }
