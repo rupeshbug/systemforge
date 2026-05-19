@@ -431,7 +431,7 @@ function IntakePageContent() {
                     Assistant
                   </p>
                   <p className="mt-3 text-sm leading-7 text-stone-500">
-                    Thinking...
+                    ....
                   </p>
                 </article>
               )}
