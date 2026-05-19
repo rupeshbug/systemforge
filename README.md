@@ -1,6 +1,6 @@
 # SystemForge
 
-A workflow-first AI lead qualification system with deterministic routing, persisted state, and human approval.
+A workflow-first AI lead qualification system with deterministic routing, structured memory, durable state, and human review.
 
 SystemForge explores how AI systems can be built beyond simple prompt-response chatbots. Instead of letting the LLM control the entire application, the system treats AI as one step inside a controlled workflow runtime.
 
@@ -19,6 +19,7 @@ The goal is to build reliable AI workflows with:
 
 - deterministic routing
 - structured outputs
+- structured workflow memory
 - workflow state machines
 - human-in-the-loop approval
 - execution history
@@ -66,14 +67,16 @@ Can someone from sales contact me?
 
 This project focuses on a narrow but complete workflow slice:
 
-- accept one inbound lead message
+- accept inbound lead conversations across multiple turns
 - run deterministic routing first
 - avoid AI calls when static routing is enough
-- call AI only for high-intent or unclear cases
+- call AI only when deterministic logic is not enough
 - validate and store workflow state in the database
+- persist structured lead memory and qualification context
 - save execution events for auditability
-- place AI-qualified leads into a human review step
-- approve or reject the lead manually
+- place review-worthy leads into a human review step
+- approve or reject the lead manually through a review UI
+- resume the same intake session after review
 - log the final workflow outcome
 
 This proves the core idea:
@@ -82,6 +85,7 @@ This proves the core idea:
 - workflow state is explicit
 - human approval is built into the process
 - state survives beyond a single request/response
+- lead context survives across turns
 - workflow decisions are observable later
 
 ---
@@ -101,18 +105,19 @@ Greeting
 ```txt
 Pricing question
 -> static pricing response
--> pricing UI
+-> collect missing contact information
 ```
 
 ```txt
-High-intent sales lead
--> AI analysis
+Direct team handoff request
+-> collect required contact information
 -> human review
 ```
 
 ```txt
-Unclear request
--> clarification or AI analysis
+Unclear or multi-meaning request
+-> AI analysis
+-> clarification or next workflow step
 ```
 
 ```txt
@@ -151,7 +156,7 @@ ROUTE_DECIDED
 |
 AI_ANALYSIS_RUNNING (only when needed)
 |
-AI_RESULT_SAVED
+AI_RESULT_SAVED / STATIC_RESPONSE_SAVED
 |
 WAITING_FOR_HUMAN_REVIEW
 |
@@ -200,8 +205,37 @@ The workflow should still be resumable because its state is persisted.
 To support this, the runtime stores:
 
 - workflow state
+- structured lead memory
 - execution history
 - workflow events
+
+---
+
+# Structured Memory And Context
+
+The system does not rely on the model to "remember" prior turns by itself.
+
+Instead, the runtime persists and reloads structured workflow context such as:
+
+- lead contact details
+- intent signals like pricing, demo, or human-contact interest
+- qualification fields like use case, timeline, budget, and team size
+- interaction state like which contact fields are still missing
+
+For every AI-needed turn, the runtime loads:
+
+- current workflow state
+- current structured memory
+- recent conversation messages
+
+Then it asks the model for a constrained update and merges the result back into persisted state.
+
+This keeps memory:
+
+- explicit
+- inspectable
+- resumable
+- runtime-controlled
 
 ---
 
@@ -240,6 +274,51 @@ debugging = observable workflow execution
 
 ---
 
+# Human Review Loop
+
+SystemForge includes a manual review queue for workflows that should not continue automatically.
+
+Typical examples include:
+
+- demo requests
+- direct team contact requests
+- high-intent handoff cases
+
+The flow works like this:
+
+```txt
+Lead asks for follow-up
+-> workflow collects required contact details
+-> workflow enters WAITING_FOR_HUMAN_REVIEW
+-> reviewer approves or rejects
+-> final outcome is saved
+-> the intake session resumes with the review result visible
+```
+
+This matters because the assistant does not make real-world commitments on its own.
+
+---
+
+# Resumable Intake Sessions
+
+The intake workspace is resumable.
+
+When a conversation creates or resumes a workflow, the runtime returns:
+
+- `workflowId`
+- `leadId`
+
+The intake page stores those identifiers in the URL and reloads the saved transcript from the database when the page is revisited.
+
+This makes it possible to:
+
+- leave the intake page
+- review the workflow later
+- approve or reject it
+- return to intake and see the same conversation plus the final review outcome
+
+---
+
 # Tech Stack
 
 | Layer | Technology |
@@ -250,7 +329,7 @@ debugging = observable workflow execution
 | Validation | Zod |
 | Database | PostgreSQL / Neon |
 | ORM | Drizzle |
-| UI | Tailwind + shadcn/ui |
+| UI | Tailwind CSS |
 | Deployment | Vercel |
 
 ---
@@ -259,9 +338,13 @@ debugging = observable workflow execution
 
 Later, the system can be extended with:
 
+- stronger auth and access control around lead data
+- signed session tokens instead of raw IDs in the URL
+- automated tests for routing, persistence, and review flows
 - automatic retry policies
 - idempotent action execution
 - scheduled resume/recovery jobs
 - duplicate event protection
 - onboarding or booking actions after approval
 - multi-channel lead ingestion
+- Temporal or another workflow engine for longer-running orchestration
