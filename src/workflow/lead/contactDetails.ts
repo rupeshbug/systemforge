@@ -30,10 +30,6 @@ export function getMissingContactFields(
     missingFields.push("name");
   }
 
-  if (!details.businessName?.trim()) {
-    missingFields.push("businessName");
-  }
-
   if (!details.email?.trim()) {
     missingFields.push("email");
   }

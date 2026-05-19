@@ -22,8 +22,8 @@ export function buildRouteResponse(
       return "Hello and welcome to SystemForge. How can I help with your sales or onboarding questions today?";
     case "pricing":
       return contactAsk
-        ? `We can help with pricing and plan guidance. ${contactAsk} Please also share a short note about your team size or use case so we can recommend the right next step.`
-        : "We can help with pricing and plan guidance. Please share a short note about your team size or use case so we can recommend the right next step.";
+        ? `We can help with pricing and plan guidance. ${contactAsk}`
+        : "We can help with pricing and plan guidance. Our team can follow up with the right next step.";
     case "demo_request":
       return contactAsk
         ? `We would be happy to arrange a demo. ${contactAsk}`
