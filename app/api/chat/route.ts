@@ -86,7 +86,8 @@ function responseAsksForQualification(responseText: string | null | undefined) {
     normalized.includes("use case") ||
     normalized.includes("budget") ||
     normalized.includes("timeline") ||
-    normalized.includes("team")
+    normalized.includes("team size") ||
+    normalized.includes("how many people")
   );
 }
 

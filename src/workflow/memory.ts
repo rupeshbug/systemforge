@@ -123,10 +123,6 @@ export function getMissingQualificationFields(
   const current = profile ?? EMPTY_LEAD_PROFILE;
   const missing: QualificationField[] = [];
 
-  if (!current.goal?.trim()) {
-    missing.push("goal");
-  }
-
   if (!current.useCase?.trim()) {
     missing.push("useCase");
   }

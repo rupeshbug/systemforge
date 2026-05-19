@@ -39,7 +39,10 @@ export function buildContactCompletionResponse(
   const hadMissingContactDetails =
     getMissingContactFields(previousLead).length > 0;
 
-  if (!hadMissingContactDetails || !hasCompleteRequiredContactDetails(currentLead)) {
+  if (
+    !hadMissingContactDetails ||
+    !hasCompleteRequiredContactDetails(currentLead)
+  ) {
     return null;
   }
 
@@ -96,6 +99,7 @@ export function buildRouteResponse(
     missingContactFields.length > 0
       ? `Please share your ${missingFieldsText} so our team can follow up properly.`
       : null;
+  const qualificationPrompt = buildQualificationPrompt(route, leadProfile);
 
   switch (route) {
     case "greeting":
@@ -103,31 +107,23 @@ export function buildRouteResponse(
     case "pricing":
       return contactAsk
         ? `We can help with pricing and plan guidance. ${contactAsk}`
-        : `We can help with pricing and plan guidance. ${
-            buildQualificationPrompt("pricing", leadProfile) ??
-            "Our team can follow up with the right next step."
-          }`;
+        : (qualificationPrompt ??
+            "Thanks, that's helpful. Our team can review your pricing needs and follow up with the right next step.");
     case "demo_request":
       return contactAsk
         ? `We would be happy to arrange a demo. ${contactAsk}`
-        : `We would be happy to arrange a demo. ${
-            buildQualificationPrompt("demo_request", leadProfile) ??
-            "Let us know what you'd like to see most, and our team can follow up with the right walkthrough."
-          }`;
+        : (qualificationPrompt ??
+            "Thanks, that's helpful. Our team can follow up with the right demo next step.");
     case "human_contact":
       return contactAsk
         ? `Our team can get in touch with you directly. ${contactAsk}`
-        : `Our team can get in touch with you directly. ${
-            buildQualificationPrompt("human_contact", leadProfile) ??
-            "If there is a specific requirement or use case you'd like to discuss, let us know."
-          }`;
+        : (qualificationPrompt ??
+            "Thanks, that's helpful. Our team can follow up with you directly from here.");
     case "onboarding":
       return contactAsk
         ? `We can help you get started with onboarding. ${contactAsk}`
-        : `We can help you get started with onboarding. ${
-            buildQualificationPrompt("onboarding", leadProfile) ??
-            "Please share a short note about your setup needs or implementation timeline."
-          }`;
+        : (qualificationPrompt ??
+            "Thanks, that's helpful. Our team can follow up with the right onboarding next step.");
     case "irrelevant":
       return "I can help with sales, pricing, demos, onboarding, and business-related questions about SystemForge. Let me know what your team needs.";
     case "clarification_required":
