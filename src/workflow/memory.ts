@@ -127,18 +127,6 @@ export function getMissingQualificationFields(
     missing.push("useCase");
   }
 
-  if (!current.timeline?.trim()) {
-    missing.push("timeline");
-  }
-
-  if (!current.budget?.trim()) {
-    missing.push("budget");
-  }
-
-  if (!current.teamSize?.trim()) {
-    missing.push("teamSize");
-  }
-
   return missing;
 }
 

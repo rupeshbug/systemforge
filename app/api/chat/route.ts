@@ -162,6 +162,68 @@ function isHumanReviewCandidateRoute(route: string | null | undefined) {
   return route === "human_contact" || route === "demo_request";
 }
 
+function hasRequiredPricingContext(
+  lead: ReturnType<typeof mergeLeadDetails>,
+  leadProfile: { useCase: string | null },
+) {
+  return (
+    getMissingContactFields(lead).length === 0 &&
+    typeof leadProfile.useCase === "string" &&
+    leadProfile.useCase.trim().length > 0
+  );
+}
+
+function resolveBusinessRouteFromContext({
+  analysisRoute,
+  currentRoute,
+  intentSignals,
+}: {
+  analysisRoute: string;
+  currentRoute: string | null | undefined;
+  intentSignals: {
+    wantsPricing: boolean;
+    wantsDemo: boolean;
+    wantsHumanContact: boolean;
+    wantsOnboarding: boolean;
+  };
+}) {
+  if (
+    analysisRoute === "pricing" ||
+    analysisRoute === "demo_request" ||
+    analysisRoute === "human_contact" ||
+    analysisRoute === "onboarding"
+  ) {
+    return analysisRoute;
+  }
+
+  if (
+    currentRoute === "pricing" ||
+    currentRoute === "demo_request" ||
+    currentRoute === "human_contact" ||
+    currentRoute === "onboarding"
+  ) {
+    return currentRoute;
+  }
+
+  if (intentSignals.wantsPricing) {
+    return "pricing";
+  }
+
+  if (intentSignals.wantsDemo) {
+    return "demo_request";
+  }
+
+  if (intentSignals.wantsHumanContact) {
+    return "human_contact";
+  }
+
+  if (intentSignals.wantsOnboarding) {
+    return "onboarding";
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   let body: unknown;
 
@@ -609,9 +671,24 @@ export async function POST(request: Request) {
     ),
     analysis.intentSignalsPatch,
   );
+  const fallbackBusinessRoute = resolveBusinessRouteFromContext({
+    analysisRoute: analysis.route,
+    currentRoute,
+    intentSignals: nextIntentSignals,
+  });
+  const shouldStopFurtherQualification =
+    fallbackBusinessRoute === "pricing" &&
+    hasRequiredPricingContext(resolvedLeadDetails, nextLeadProfile) &&
+    analysis.route === "clarification_required";
   const responseText =
     analysis.requiresHumanReview
       ? buildPendingReviewResponse(analysis.route, resolvedLeadDetails)
+      : shouldStopFurtherQualification && fallbackBusinessRoute
+        ? buildRouteResponse(
+            fallbackBusinessRoute,
+            resolvedLeadDetails,
+            nextLeadProfile,
+          )
       : analysis.route === "clarification_required"
         ? buildRouteResponse(
             analysis.route,
