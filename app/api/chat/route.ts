@@ -120,6 +120,44 @@ function extractUseCaseFromReply(
   return trimmed;
 }
 
+function extractBudgetFromReply(
+  latestUserMessage: string,
+  recentMessages: { role: "user" | "assistant"; content: string }[],
+) {
+  const lastAssistantMessage = [...recentMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+
+  if (!lastAssistantMessage) {
+    return null;
+  }
+
+  const lastAssistantText = lastAssistantMessage.content.toLowerCase();
+
+  if (!lastAssistantText.includes("budget")) {
+    return null;
+  }
+
+  const normalized = latestUserMessage.trim().toLowerCase();
+
+  if (
+    normalized === "no" ||
+    normalized === "nope" ||
+    normalized === "not yet" ||
+    normalized === "not sure" ||
+    normalized === "don't know" ||
+    normalized === "dont know" ||
+    normalized === "no budget" ||
+    normalized === "no budget yet" ||
+    normalized === "we do not have one yet" ||
+    normalized === "we don't have one yet"
+  ) {
+    return "not specified yet";
+  }
+
+  return null;
+}
+
 function isHumanReviewCandidateRoute(route: string | null | undefined) {
   return route === "human_contact" || route === "demo_request";
 }
@@ -552,12 +590,16 @@ export async function POST(request: Request) {
   const useCaseFallback =
     analysis.leadProfilePatch.useCase ??
     extractUseCaseFromReply(prompt, initialContext.recentMessages);
+  const budgetFallback =
+    analysis.leadProfilePatch.budget ??
+    extractBudgetFromReply(prompt, initialContext.recentMessages);
 
   const nextLeadProfile = mergeLeadProfile(
     currentMemory.leadProfile,
     {
       ...analysis.leadProfilePatch,
       useCase: useCaseFallback,
+      budget: budgetFallback,
     },
   );
   const nextIntentSignals = mergeIntentSignals(

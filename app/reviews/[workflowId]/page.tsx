@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { submitHumanReview } from "@/app/reviews/actions";
 import { getHumanReviewWorkflow } from "@/src/workflow/persistence";
 
+export const dynamic = "force-dynamic";
+
 type ReviewDetailPageProps = {
   params: Promise<{
     workflowId: string;

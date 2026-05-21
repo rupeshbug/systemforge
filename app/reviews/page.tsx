@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { listHumanReviewWorkflows } from "@/src/workflow/persistence";
 
+export const dynamic = "force-dynamic";
+
 export default async function ReviewsPage() {
   const workflows = await listHumanReviewWorkflows();
 
